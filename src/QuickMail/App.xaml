@@ -1,0 +1,22 @@
+<Application x:Class="QuickMail.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:h="clr-namespace:QuickMail.Helpers"
+             ShutdownMode="OnMainWindowClose">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/Dark.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+            <h:InverseBoolToVisConverter x:Key="InvBoolToVis"/>
+            <h:NullToVisConverter x:Key="NullToVis"/>
+            <h:CountToVisConverter x:Key="CountToVis"/>
+            <h:HexToBrushConverter x:Key="HexToBrush"/>
+            <h:StringToVisConverter x:Key="StringToVis"/>
+            <h:EnumEqualsConverter x:Key="EnumEquals"/>
+            <h:ReadToWeightConverter x:Key="ReadToWeight"/>
+            <h:FractionToWidthConverter x:Key="FracToWidth"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
