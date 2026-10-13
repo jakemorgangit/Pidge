@@ -1,0 +1,487 @@
+<Window x:Class="Pidge.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings" Width="820" Height="660" MinWidth="700" MinHeight="520"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Style="{StaticResource DarkWindow}">
+    <Window.Resources>
+        <!-- Vertical navigation for the settings sections -->
+        <Style x:Key="SideTabs" TargetType="TabControl">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Left" Width="190" Background="{StaticResource Bg1}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                                <StackPanel Margin="12,18,12,12">
+                                    <TextBlock Text="Settings" FontSize="18" FontWeight="Bold" Margin="8,0,0,14" Foreground="{StaticResource TextBrush}"/>
+                                    <StackPanel IsItemsHost="True"/>
+                                </StackPanel>
+                            </Border>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,22,28,10">
+                                <ContentPresenter ContentSource="SelectedContent"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SideTab" TargetType="TabItem">
+            <Setter Property="Foreground" Value="{StaticResource SubBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Bd" CornerRadius="7" Padding="10,8" Margin="0,0,0,2" Background="Transparent">
+                            <ContentPresenter ContentSource="Header"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Bg3}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+        <Style x:Key="SectionIntro" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource SubBrush}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="LineHeight" Value="20"/>
+            <Setter Property="Margin" Value="0,0,0,14"/>
+        </Style>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Background" Value="{StaticResource Bg2}"/>
+            <Setter Property="Padding" Value="16,14"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="20,12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Cancel" Style="{StaticResource OutlineButton}" IsCancel="True" Margin="0,0,8,0" MinWidth="90"/>
+                <Button Content="Save" Style="{StaticResource AccentButton}" IsDefault="True" MinWidth="90" Click="Save_Click"/>
+            </StackPanel>
+        </Border>
+
+        <TabControl x:Name="Tabs" Style="{StaticResource SideTabs}" ItemContainerStyle="{StaticResource SideTab}">
+            <!-- ================= General ================= -->
+            <TabItem Header="General">
+                <StackPanel>
+                    <TextBlock Text="General" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="How Pidge looks and how often it checks for mail." Style="{StaticResource SectionIntro}"/>
+
+                    <TextBlock Text="Text size" Style="{StaticResource FieldLabel}" Margin="0,0,0,5"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="60"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="A" FontSize="12" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <Slider x:Name="ScaleSlider" Grid.Column="1" Minimum="0.8" Maximum="1.6" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                Margin="12,0" VerticalAlignment="Center" ValueChanged="ScaleSlider_ValueChanged"/>
+                        <TextBlock Grid.Column="2" Text="A" FontSize="20" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ScaleText" Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                    </Grid>
+                    <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,4,0,0"
+                               Text="Tip: hold Ctrl and turn the mouse wheel anywhere in Pidge, or press Ctrl + and Ctrl −."/>
+
+                    <TextBlock Text="Check for new mail every" Style="{StaticResource FieldLabel}" Margin="0,18,0,5"/>
+                    <ComboBox x:Name="IntervalBox" Width="220" HorizontalAlignment="Left"/>
+
+                    <TextBlock Text="Messages to download per folder on first sync" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="InitialCountBox" Width="220" HorizontalAlignment="Left"/>
+
+                    <CheckBox x:Name="BlockImagesBox" Margin="0,18,0,0" Content="Block remote images (protects your privacy and stops read-tracking)"/>
+                    <CheckBox x:Name="DarkReadingBox" Margin="0,12,0,0" Content="Dark reading mode for emails"/>
+                    <CheckBox x:Name="UpdatesBox" Margin="0,12,0,0" Content="Check for updates when Pidge starts"/>
+
+                    <TextBlock Text="Keyboard shortcuts" FontWeight="SemiBold" Margin="0,22,0,6"/>
+                    <TextBlock Foreground="{StaticResource SubBrush}" TextWrapping="Wrap" LineHeight="21">
+                        Ctrl+N new message · Ctrl+D dashboard · Ctrl+0 all inboxes · Ctrl+1…9 jump to account · Ctrl+F search · F5 refresh · Ctrl +/− text size<LineBreak/>
+                        In the list: R reply · A reply all · F forward · E archive · V move to folder · T tag · Del delete · J spam · S flag · U read/unread<LineBreak/>
+                        Compose: Ctrl+Enter send · Ctrl+K link · Ctrl+Shift+S save draft
+                    </TextBlock>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Accounts ================= -->
+            <TabItem Header="Accounts &amp; servers">
+                <StackPanel>
+                    <TextBlock Text="Server templates" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Style="{StaticResource SectionIntro}"
+                               Text="Save a provider's server settings once (for example DreamHost) and pick it when you add more accounts with that provider. You can also save a template from the Advanced section when adding an account."/>
+                    <ItemsControl x:Name="TemplateList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource Bg2}" CornerRadius="8" Padding="14,8,6,8" Margin="0,0,0,6">
+                                    <Grid>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                            <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12">
+                                                <Run Text="IMAP"/> <Run Text="{Binding ImapHost, Mode=OneWay}"/>:<Run Text="{Binding ImapPort, Mode=OneWay}"/> · <Run Text="SMTP"/> <Run Text="{Binding SmtpHost, Mode=OneWay}"/>:<Run Text="{Binding SmtpPort, Mode=OneWay}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <Button HorizontalAlignment="Right" Style="{StaticResource GhostButton}" Padding="8,4" Click="DeleteTemplate_Click" Tag="{Binding}">
+                                            <TextBlock Text="Delete" Foreground="{StaticResource AccentHoverBrush}"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Border Style="{StaticResource Card}" Margin="0,6,0,12">
+                        <StackPanel>
+                            <TextBlock Text="New template" FontWeight="SemiBold"/>
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="10"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="TplName" Tag="DreamHost"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="IMAP server (SSL, 993)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="TplImap" Tag="imap.dreamhost.com"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="4">
+                                    <TextBlock Text="SMTP server (SSL, 465)" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox x:Name="TplSmtp" Tag="smtp.dreamhost.com"/>
+                                </StackPanel>
+                            </Grid>
+                            <Button Content="Save template" Style="{StaticResource OutlineButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="AddTemplate_Click"/>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="Microsoft sign-in" Style="{StaticResource SectionTitle}" Margin="0,14,0,4"/>
+                    <TextBlock Style="{StaticResource SectionIntro}"
+                               Text="Outlook.com and Microsoft 365 accounts sign in through Microsoft, which needs an app registration in Microsoft Entra ID. Paste its Application (client) ID here; leave blank to use the one built into Pidge."/>
+                    <TextBox x:Name="ClientIdBox" Tag="00000000-0000-0000-0000-000000000000"/>
+                    <Button Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Margin="-10,6,0,0" Click="RegistrationHelp_Click">
+                        <TextBlock Text="How to register the app (5 minutes) →" Foreground="{StaticResource AccentHoverBrush}"/>
+                    </Button>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Tags ================= -->
+            <TabItem Header="Tags">
+                <StackPanel>
+                    <TextBlock Text="Tags" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Style="{StaticResource SectionIntro}"
+                               Text="When you tag a message, Pidge remembers the sender and tags their mail automatically. When people from the same organisation share a tag, the whole domain is tagged. Remove a rule here to stop it."/>
+                    <ItemsControl x:Name="TagList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource Bg2}" CornerRadius="8" Padding="14,10" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <Grid>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Ellipse Width="10" Height="10" Fill="{Binding Brush}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Margin="10,0,0,0"/>
+                                                <TextBlock Text="{Binding CountText}" Foreground="{StaticResource MutedBrush}" Margin="10,0,0,0"/>
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                                <Button Style="{StaticResource GhostButton}" Padding="8,2" Click="RenameTag_Click" Tag="{Binding}">
+                                                    <TextBlock Text="Rename" Foreground="{StaticResource AccentHoverBrush}"/>
+                                                </Button>
+                                                <Button Style="{StaticResource GhostButton}" Padding="8,2" Click="DeleteTag_Click" Tag="{Binding}">
+                                                    <TextBlock Text="Delete" Foreground="{StaticResource AccentHoverBrush}"/>
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                        <ItemsControl ItemsSource="{Binding Rules}" Margin="20,6,0,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border CornerRadius="10" Background="{StaticResource Bg3}" Padding="9,1,2,1" Margin="0,0,6,6">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="{Binding Pattern}" FontSize="12" VerticalAlignment="Center"/>
+                                                            <Button Style="{StaticResource IconButton}" Width="20" Height="20" FontSize="9" Content="&#xE711;" ToolTip="Stop auto-tagging this"
+                                                                    Click="RemoveRule_Click" Tag="{Binding}"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="NoTagsText" Text="No tags yet. Select a message and press T to create one." Foreground="{StaticResource MutedBrush}"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Spam ================= -->
+            <TabItem Header="Spam &amp; learning">
+                <StackPanel>
+                    <TextBlock Text="Spam &amp; learning" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Text="How strict the spam filter is, and what it has learned from you." Style="{StaticResource SectionIntro}"/>
+                    <TextBlock Text="Spam sensitivity" Style="{StaticResource FieldLabel}" Margin="0,0,0,5"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Relaxed" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                        <Slider x:Name="ThresholdSlider" Grid.Column="1" Minimum="0.45" Maximum="0.9" Margin="12,0" IsDirectionReversed="True"
+                                TickFrequency="0.05" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="Strict" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                    </Grid>
+                    <CheckBox x:Name="MoveSpamBox" Margin="0,16,0,0" Content="Move detected spam to each account's server Spam folder"/>
+                    <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="27,4,0,0"
+                               Text="When off, suspected spam stays in the inbox but is held under 'Suspected spam' for you to review."/>
+                    <Border Style="{StaticResource Card}" Margin="0,22,0,0">
+                        <StackPanel>
+                            <TextBlock Text="What Pidge has learned" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="LearnText" Foreground="{StaticResource SubBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                            <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"
+                                       Text="Every time you press Spam or Not spam, the filter learns the words, senders and domains involved. It starts using that once it has seen at least 5 of each."/>
+                            <Button Content="Reset learning" Style="{StaticResource OutlineButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="ResetLearning_Click"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Blocked ================= -->
+            <TabItem Header="Blocked senders">
+                <StackPanel>
+                    <TextBlock Text="Blocked senders" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Style="{StaticResource SectionIntro}"
+                               Text="Mail from these senders goes straight to the bin in every account. Use @domain.com to block a whole domain."/>
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="BlockBox" Tag="spammer@example.com or @example.com"/>
+                        <Button Grid.Column="1" Content="Block" Style="{StaticResource AccentButton}" Margin="8,0,0,0" Click="AddBlock_Click"/>
+                    </Grid>
+                    <ItemsControl x:Name="BlockedList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource Bg2}" CornerRadius="7" Padding="12,6,6,6" Margin="0,0,0,5">
+                                    <Grid>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Pattern}"/>
+                                            <TextBlock Text="{Binding Detail}" Foreground="{StaticResource MutedBrush}" FontSize="11.5"/>
+                                        </StackPanel>
+                                        <Button HorizontalAlignment="Right" Style="{StaticResource GhostButton}" Padding="8,4" Click="Unblock_Click" Tag="{Binding Pattern}">
+                                            <TextBlock Text="Unblock" Foreground="{StaticResource AccentHoverBrush}"/>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Storage ================= -->
+            <TabItem Header="Storage">
+                <StackPanel>
+                    <TextBlock Text="Storage" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Style="{StaticResource SectionIntro}"
+                               Text="Downloaded emails are stored compressed. Your mail always stays on your mail servers, so anything removed here downloads again when you open it."/>
+                    <Border Style="{StaticResource Card}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="TOTAL" Style="{StaticResource Caption}"/>
+                                <TextBlock x:Name="StorageTotal" FontSize="24" FontWeight="Bold" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="MESSAGE INDEX" Style="{StaticResource Caption}"/>
+                                <TextBlock x:Name="StorageDb" FontSize="18" FontWeight="SemiBold" Margin="0,6,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="DOWNLOADED EMAILS" Style="{StaticResource Caption}"/>
+                                <TextBlock x:Name="StorageCache" FontSize="18" FontWeight="SemiBold" Margin="0,6,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="Remove downloaded emails I haven't opened for" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="RetentionBox" Width="260" HorizontalAlignment="Left"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                        <Button x:Name="CompactButton" Content="Compress &amp; tidy now" Style="{StaticResource AccentButton}" Click="Compact_Click"/>
+                        <TextBlock x:Name="CompactResult" Foreground="{StaticResource SubBrush}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="320"/>
+                    </StackPanel>
+                    <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,12,0,0" TextWrapping="Wrap"
+                               Text="Pidge also tidies up automatically once a day using the setting above."/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Sync between PCs ================= -->
+            <TabItem Header="Sync between PCs">
+                <StackPanel>
+                    <TextBlock Text="Sync between PCs" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Style="{StaticResource SectionIntro}"
+                               Text="Use Pidge on several computers with the same accounts and settings. Point every PC at the same folder in Google Drive, OneDrive, Dropbox or a network share. Adding, editing or removing an account, blocking a sender, tags and templates all reach your other PCs within seconds."/>
+
+                    <Border x:Name="SyncOnPanel" Style="{StaticResource Card}" Visibility="Collapsed">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE895;" Style="{StaticResource Icon}" Foreground="{StaticResource OkBrush}" Margin="0,0,10,0"/>
+                                <TextBlock Text="Sharing is on" FontWeight="SemiBold"/>
+                            </StackPanel>
+                            <TextBlock x:Name="SyncFolderText" Foreground="{StaticResource SubBrush}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="SyncStatusText" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                <Button Content="Sync now" Style="{StaticResource OutlineButton}" Click="SyncNow_Click"/>
+                                <Button Content="Turn off" Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Click="SyncOff_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel x:Name="SyncOffPanel">
+                        <TextBlock Text="Shared folder" Style="{StaticResource FieldLabel}" Margin="0,0,0,5"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="SyncFolderBox" Tag="e.g. G:\My Drive\Pidge"/>
+                            <Button Grid.Column="1" Content="Browse…" Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Click="BrowseSync_Click"/>
+                        </Grid>
+                        <ItemsControl x:Name="SyncSuggestions" Margin="0,8,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource OutlineButton}" Padding="10,4" Margin="0,0,6,6" Click="SyncSuggestion_Click" Tag="{Binding Path}">
+                                        <TextBlock Text="{Binding Label}" FontSize="12"/>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Sync passphrase" Style="{StaticResource FieldLabel}"/>
+                                <PasswordBox x:Name="SyncPass1"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Confirm passphrase" Style="{StaticResource FieldLabel}"/>
+                                <PasswordBox x:Name="SyncPass2"/>
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                                   Text="The shared file holds your mail passwords, so it's encrypted (AES-256) with this passphrase. Use the same passphrase on every PC."/>
+                        <Button Content="Turn on sync" Style="{StaticResource AccentButton}" HorizontalAlignment="Left" Margin="0,14,0,0" Click="SyncOn_Click"/>
+                    </StackPanel>
+                    <TextBlock x:Name="SyncError" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= Backup ================= -->
+            <TabItem Header="Backup &amp; move">
+                <StackPanel>
+                    <TextBlock Text="Backup &amp; move" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Style="{StaticResource SectionIntro}"
+                               Text="Export every account (including passwords), blocked and trusted senders, tags, templates, contacts, spam learning and settings into one file. Import it on another computer to be up and running in seconds."/>
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE72E;" Style="{StaticResource Icon}" Foreground="{StaticResource OkBrush}" Margin="0,0,10,0"/>
+                                <TextBlock Text="Password protected" FontWeight="SemiBold"/>
+                            </StackPanel>
+                            <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                                       Text="The file is encrypted with AES-256 using a password you choose. Without that password it can't be opened, and a forgotten one can't be recovered."/>
+                        </StackPanel>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Button Style="{StaticResource AccentButton}" Click="Export_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xEDE1;" Style="{StaticResource Icon}" Margin="0,0,8,0"/>
+                                <TextBlock Text="Export settings…"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource OutlineButton}" Margin="10,0,0,0" Click="Import_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE8B5;" Style="{StaticResource Icon}" Margin="0,0,8,0"/>
+                                <TextBlock Text="Import settings…"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </StackPanel>
+            </TabItem>
+
+            <!-- ================= About ================= -->
+            <TabItem Header="About">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,18">
+                        <Image Source="/Assets/Pidge.png" Width="72" Height="72" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <StackPanel Margin="16,0,0,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="AboutName" Text="Pidge" FontSize="26" FontWeight="Bold"/>
+                            <TextBlock x:Name="VersionText" Foreground="{StaticResource SubBrush}"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <Border Style="{StaticResource Card}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Created by" Foreground="{StaticResource MutedBrush}" Margin="0,4"/>
+                            <TextBlock Grid.Column="1" Text="Blackcat Data Solutions Limited" FontWeight="SemiBold" Margin="0,4"/>
+                            <TextBlock Grid.Row="1" Text="Author" Foreground="{StaticResource MutedBrush}" Margin="0,4"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="Jake Morgan" FontWeight="SemiBold" Margin="0,4"/>
+                            <TextBlock Grid.Row="2" Text="Source" Foreground="{StaticResource MutedBrush}" Margin="0,4"/>
+                            <Button Grid.Row="2" Grid.Column="1" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Padding="0,2" Click="OpenRepo_Click">
+                                <TextBlock x:Name="RepoText" Foreground="{StaticResource AccentHoverBrush}"/>
+                            </Button>
+                            <TextBlock Grid.Row="3" Text="Your data" Foreground="{StaticResource MutedBrush}" Margin="0,4"/>
+                            <TextBlock Grid.Row="3" Grid.Column="1" x:Name="DataPathText" TextWrapping="Wrap" Margin="0,4" Foreground="{StaticResource SubBrush}"/>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Text="Updates" FontWeight="SemiBold" Margin="0,8,0,6"/>
+                    <TextBlock Foreground="{StaticResource SubBrush}" TextWrapping="Wrap"
+                               Text="New versions are published on GitHub. Pidge checks when it starts, or you can check now."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <Button x:Name="CheckButton" Content="Check for updates" Style="{StaticResource AccentButton}" Click="CheckUpdates_Click"/>
+                        <TextBlock x:Name="UpdateStatus" Foreground="{StaticResource SubBrush}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    </StackPanel>
+                    <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,22,0,0"
+                               Text="© Blackcat Data Solutions Limited. All rights reserved."/>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

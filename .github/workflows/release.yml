@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag like v1.2.0 to build the MSI and publish a GitHub release.
-# Installed copies of QuickMail check the latest release and offer to update.
+# Installed copies of Pidge check the latest release and offer to update.
 on:
   push:
     tags: ['v*.*.*']

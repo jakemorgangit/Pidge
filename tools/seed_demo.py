@@ -1,9 +1,9 @@
-"""Seeds a throwaway QuickMail data folder with fake accounts and mail for UI testing.
+"""Seeds a throwaway Pidge data folder with fake accounts and mail for UI testing.
 
 Usage:
-    1. set QUICKMAIL_DATA=C:\\temp\\qm-demo and start QuickMail once (creates the database), then close it
+    1. set PIDGE_DATA=C:\\temp\\qm-demo and start Pidge once (creates the database), then close it
     2. python tools/seed_demo.py C:\\temp\\qm-demo
-    3. start QuickMail again with the same QUICKMAIL_DATA, plus QUICKMAIL_OFFLINE=1 so it
+    3. start Pidge again with the same PIDGE_DATA, plus PIDGE_OFFLINE=1 so it
        doesn't try to reach the (fake) mail servers
 """
 import os
@@ -16,7 +16,7 @@ from email.utils import format_datetime, make_msgid
 from datetime import datetime, timezone
 
 data_dir = sys.argv[1]
-db = sqlite3.connect(os.path.join(data_dir, "quickmail.db"))
+db = sqlite3.connect(os.path.join(data_dir, "pidge.db"))
 random.seed(7)
 
 accounts = [
@@ -94,5 +94,23 @@ for name, addr, subj, prev in spam:
 for name, addr in people[:4]:
     db.execute("INSERT OR REPLACE INTO Contacts(Address,Name,SentCount,ReceivedCount,LastSeenUnix) VALUES(?,?,?,?,?)", (addr, name, 3, 10, now))
 db.execute("INSERT OR REPLACE INTO Counters(Key,Value) VALUES('spamCaught',37),('blocked',112)")
+
+# Folders on the first account, and a few tags (with learned sender rules) for the screenshots.
+db.execute("DELETE FROM Folders")
+for path, name, depth, unread in [("Clients", "Clients", 0, 0), ("Clients/Acme", "Acme", 1, 2), ("Clients/Globex", "Globex", 1, 0),
+                                  ("Receipts", "Receipts", 0, 5), ("Projects", "Projects", 0, 1)]:
+    db.execute("INSERT INTO Folders(AccountId,Path,Name,Depth,Unread,Total,Selectable,SortKey) VALUES(?,?,?,?,?,?,1,?)",
+               (ids[0], path, name, depth, unread, unread + 7, path.lower()))
+db.execute("DELETE FROM Tags"); db.execute("DELETE FROM MessageTags"); db.execute("DELETE FROM TagRules")
+tags = {"Clients": "#36D399", "Invoices": "#FFB648", "Family": "#F472B6"}
+tag_ids = {}
+for name, color in tags.items():
+    db.execute("INSERT INTO Tags(TagGuid,Name,Color) VALUES(lower(hex(randomblob(16))),?,?)", (name, color))
+    tag_ids[name] = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+for sender, tag in [("tom.price@clientco.example", "Clients"), ("priya@designstudio.example", "Clients"),
+                    ("mum@family.example", "Family"), ("notifications@stripe.example", "Invoices")]:
+    db.execute("INSERT INTO TagRules(TagId,Pattern,CreatedUnix) VALUES(?,?,?)", (tag_ids[tag], sender, now))
+    for acct, key in db.execute("SELECT AccountId, MessageId FROM Messages WHERE FromAddress=?", (sender,)).fetchall():
+        db.execute("INSERT OR IGNORE INTO MessageTags(AccountId,MessageKey,TagId) VALUES(?,?,?)", (acct, key, tag_ids[tag]))
 db.commit()
 print("seeded", sum(uid.values()) - 100 * len(ids), "messages")

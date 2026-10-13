@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-  Builds QuickMail and packages it as an MSI.
+  Builds Pidge and packages it as an MSI.
 .EXAMPLE
   ./build.ps1 -Version 1.2.0
-  # -> artifacts/QuickMail-1.2.0-x64.msi
+  # -> artifacts/Pidge-1.2.0-x64.msi
 #>
 param([string]$Version = "1.0.0")
 $ErrorActionPreference = "Stop"
@@ -13,11 +13,11 @@ $out = Join-Path $root "artifacts"
 
 Remove-Item $publish -Recurse -Force -ErrorAction SilentlyContinue
 
-dotnet publish "$root/src/QuickMail/QuickMail.csproj" -c Release -r win-x64 --self-contained true `
+dotnet publish "$root/src/Pidge/Pidge.csproj" -c Release -r win-x64 --self-contained true `
     -p:Version=$Version -p:DebugType=none -o $publish
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
-dotnet build "$root/installer/QuickMail.Installer.wixproj" -c Release `
+dotnet build "$root/installer/Pidge.Installer.wixproj" -c Release `
     -p:Version=$Version -p:AppPublishDir="$publish/" -o $out
 if ($LASTEXITCODE -ne 0) { throw "MSI build failed" }
 

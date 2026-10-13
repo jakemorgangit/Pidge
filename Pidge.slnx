@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Pidge/Pidge.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Pidge.Tests/Pidge.Tests.csproj" />
+  </Folder>
+</Solution>
