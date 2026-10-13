@@ -28,8 +28,8 @@ public sealed class MailEngine
     public event Action<long, FolderKind, string>? FolderChanged;
     /// <summary>Account sync started/stopped; error is null on success.</summary>
     public event Action<long, bool, string?>? SyncState;
-    /// <summary>New, non-spam mail arrived (account, count, newest record).</summary>
-    public event Action<long, int, MessageRecord?>? NewMail;
+    /// <summary>New, unread, non-spam mail arrived in an inbox (account, the new messages).</summary>
+    public event Action<long, IReadOnlyList<MessageRecord>>? NewMail;
     /// <summary>An account's folder list was refreshed from the server.</summary>
     public event Action<long>? FoldersChanged;
 
@@ -90,16 +90,16 @@ public sealed class MailEngine
         SyncState?.Invoke(accountId, true, null);
         try
         {
-            var (added, newest) = await Session(accountId).RunAsync(c => SyncCoreAsync(c, account, kind, path, ct), ct);
+            var fresh = await Session(accountId).RunAsync(c => SyncCoreAsync(c, account, kind, path, ct), ct);
             if (kind == FolderKind.Inbox) MailStore.SetLastSync(accountId);
             SyncState?.Invoke(accountId, false, null);
             FolderChanged?.Invoke(accountId, kind, path);
-            if (added > 0 && kind == FolderKind.Inbox) NewMail?.Invoke(accountId, added, newest);
+            if (fresh.Count > 0 && kind == FolderKind.Inbox) NewMail?.Invoke(accountId, fresh);
 
             // Keep the folder list fresh without listing on every sync.
             if (kind == FolderKind.Inbox && DateTime.UtcNow - _foldersRefreshed.GetValueOrDefault(accountId) > TimeSpan.FromMinutes(15))
                 _ = RefreshFoldersAsync(accountId, ct);
-            return added;
+            return fresh.Count;
         }
         catch (OperationCanceledException)
         {
@@ -113,12 +113,12 @@ public sealed class MailEngine
         }
     }
 
-    private async Task<(int added, MessageRecord? newest)> SyncCoreAsync(MailKit.Net.Imap.ImapClient client, MailAccount account,
+    private async Task<List<MessageRecord>> SyncCoreAsync(MailKit.Net.Imap.ImapClient client, MailAccount account,
         FolderKind kind, string path, CancellationToken ct)
     {
         var session = Session(account.Id);
         var folder = await session.GetFolderAsync(client, kind, path, ct);
-        if (folder == null) return (0, null);
+        if (folder == null) return [];
 
         await folder.OpenAsync(FolderAccess.ReadWrite, ct);
         long validity = folder.UidValidity;
@@ -161,8 +161,12 @@ public sealed class MailEngine
             MailStore.SetFolderUnread(account.Id, path, unread, Math.Max(total, folder.Count));
         }
 
+        // The first sync of a folder brings in history, which isn't "new mail".
+        if (maxUid == 0) return [];
+        // Re-read so records carry their database ids (needed to open them from a notification).
         var fresh = records.Where(r => !r.IsRead && !r.IsSpam).ToList();
-        return (maxUid == 0 ? 0 : fresh.Count, fresh.OrderByDescending(r => r.DateUnix).FirstOrDefault());
+        return fresh.Count == 0 ? [] : MailStore.QueryMessages(account.Id, kind, Pidge.Data.MessageFilter.All, null, 50, path)
+            .Where(m => fresh.Any(f => f.Uid == m.Uid)).ToList();
     }
 
     /// <summary>Builds records and applies the block list and spam filter to newly fetched mail.</summary>

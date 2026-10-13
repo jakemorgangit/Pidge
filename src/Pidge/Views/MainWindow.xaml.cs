@@ -44,9 +44,25 @@ public partial class MainWindow : Window
             if (e.PropertyName is nameof(MainViewModel.TotalUnread))
                 Title = _vm.TotalUnread > 0 ? $"Pidge ({_vm.TotalUnread})" : "Pidge";
         };
-        _vm.NewMailArrived += (_, count, newest) =>
+        _vm.NewMailArrived += (accountId, fresh) =>
         {
-            if (!IsActive) FlashTaskbar();
+            if (IsActive && WindowState != WindowState.Minimized)
+            {
+                Log.Info($"New mail ({fresh.Count}) while Pidge is in front: no notification");
+                return; // you're already looking at Pidge
+            }
+            FlashTaskbar();
+            if (_vm.Accounts.FirstOrDefault(a => a.Account.Id == accountId)?.Account is { } account)
+                Notifier.ShowNewMail(account, fresh);
+        };
+        _vm.ActivateRequested += () =>
+        {
+            if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+            Show();
+            Activate();
+            Topmost = true;
+            Topmost = false;
+            Focus();
         };
 
         _vm.PropertyChanged += (_, e) =>
@@ -199,6 +215,15 @@ public partial class MainWindow : Window
             MessageList.Focus();
             e.Handled = true;
         }
+    }
+
+    // ---------------- Notifications ----------------
+    private void BellButton_Click(object sender, RoutedEventArgs e)
+    {
+        BellButton.ContextMenu.DataContext = _vm;
+        BellButton.ContextMenu.PlacementTarget = BellButton;
+        BellButton.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Top;
+        BellButton.ContextMenu.IsOpen = true;
     }
 
     // ---------------- Folders drop-down ----------------

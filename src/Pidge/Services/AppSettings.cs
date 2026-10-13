@@ -26,6 +26,16 @@ public class AppSettings
     /// <summary>Overrides the built-in Microsoft Entra application (client) ID used for "Sign in with Microsoft".</summary>
     public string MicrosoftClientId { get; set; } = "";
 
+    // ---- Notifications (per PC) ----
+    public bool NotificationsEnabled { get; set; } = true;
+    public bool NotifySound { get; set; } = true;
+    /// <summary>Only notify for mail from people (skip newsletters, promotions, notifications and social).</summary>
+    public bool NotifyPeopleOnly { get; set; }
+    /// <summary>Accounts (by AccountGuid) that never notify.</summary>
+    public List<string> MutedAccounts { get; set; } = [];
+    /// <summary>Notifications are paused until this time (UTC). DateTime.MaxValue = until turned back on.</summary>
+    public DateTime? NotificationsPausedUntilUtc { get; set; }
+
     // ---- Shared settings between PCs (machine-local; never synced themselves) ----
     public string SharedFolder { get; set; } = "";
     public string SharedPassphraseProtected { get; set; } = "";

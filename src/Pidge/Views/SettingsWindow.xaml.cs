@@ -24,6 +24,15 @@ public partial class SettingsWindow : Window
 
     private record Suggestion(string Label, string Path);
 
+    private class NotifyRow
+    {
+        public required MailAccount Account { get; init; }
+        public bool Enabled { get; set; }
+        public string Name => string.IsNullOrWhiteSpace(Account.DisplayName) ? Account.Email : Account.DisplayName;
+        public string Email => Account.Email;
+        public System.Windows.Media.SolidColorBrush Brush => Palette.FromHex(Account.Color);
+    }
+
     private class TagRow
     {
         public required TagInfo Tag { get; init; }
@@ -60,6 +69,10 @@ public partial class SettingsWindow : Window
         ThresholdSlider.Value = s.SpamThreshold;
         MoveSpamBox.IsChecked = s.MoveSpamToJunk;
         ClientIdBox.Text = s.MicrosoftClientId;
+        NotifyEnabledBox.IsChecked = s.NotificationsEnabled;
+        NotifySoundBox.IsChecked = s.NotifySound;
+        NotifyPeopleBox.IsChecked = s.NotifyPeopleOnly;
+        NotifyAccountsList.ItemsSource = MailStore.GetAccounts().Select(a => new NotifyRow { Account = a, Enabled = !Notifier.IsAccountMuted(a) }).ToList();
         RetentionBox.ItemsSource = Retention;
         RetentionBox.SelectedItem = Retention.FirstOrDefault(r => r.Value == s.CacheRetentionDays) ?? Retention[0];
 
@@ -90,6 +103,9 @@ public partial class SettingsWindow : Window
         ScaleText.Text = $"{v:P0}";
         _main.UiScale = v; // live preview
     }
+
+    // ---------------- Notifications ----------------
+    private void TestNotification_Click(object sender, RoutedEventArgs e) => Notifier.ShowTest();
 
     // ---------------- Accounts & servers ----------------
     private void RefreshTemplates() => TemplateList.ItemsSource = MailStore.GetTemplates();
@@ -396,6 +412,10 @@ public partial class SettingsWindow : Window
         s.MoveSpamToJunk = MoveSpamBox.IsChecked == true;
         s.MicrosoftClientId = ClientIdBox.Text.Trim();
         s.CacheRetentionDays = ((Choice)RetentionBox.SelectedItem).Value;
+        s.NotificationsEnabled = NotifyEnabledBox.IsChecked == true;
+        s.NotifySound = NotifySoundBox.IsChecked == true;
+        s.NotifyPeopleOnly = NotifyPeopleBox.IsChecked == true;
+        foreach (var row in (IEnumerable<NotifyRow>)NotifyAccountsList.ItemsSource) Notifier.SetAccountMuted(row.Account, !row.Enabled);
         _main.DarkReading = DarkReadingBox.IsChecked == true;
         _saved = true;
         AppSettings.Save();
