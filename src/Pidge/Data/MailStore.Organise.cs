@@ -165,6 +165,43 @@ public static partial class MailStore
         Changed();
     }
 
+    // ---------------- Learned data shared between PCs ----------------
+    public static List<ContactRecord> GetAllContacts()
+    {
+        using var c = Db.Open();
+        return c.Query<ContactRecord>("SELECT * FROM Contacts").ToList();
+    }
+
+    /// <summary>Merges contacts from another PC, keeping the higher counts so nothing is lost or double-counted.</summary>
+    public static void MergeContacts(IEnumerable<ContactRecord> contacts)
+    {
+        using var c = Db.Open();
+        using var tx = c.BeginTransaction();
+        foreach (var ct in contacts)
+            c.Execute("""
+                INSERT INTO Contacts(Address,Name,SentCount,ReceivedCount,LastSeenUnix) VALUES(lower(@Address),@Name,@SentCount,@ReceivedCount,@LastSeenUnix)
+                ON CONFLICT(Address) DO UPDATE SET SentCount=MAX(SentCount,excluded.SentCount), ReceivedCount=MAX(ReceivedCount,excluded.ReceivedCount),
+                    LastSeenUnix=MAX(LastSeenUnix,excluded.LastSeenUnix), Name=CASE WHEN Name='' THEN excluded.Name ELSE Name END
+                """, ct, tx);
+        tx.Commit();
+    }
+
+    /// <summary>Merges spam-filter word counts from another PC (higher count wins per word).</summary>
+    public static void MergeTokens(IEnumerable<KeyValuePair<string, int[]>> tokens)
+    {
+        using var c = Db.Open();
+        using var tx = c.BeginTransaction();
+        foreach (var t in tokens.Where(t => t.Value.Length == 2))
+            c.Execute("""
+                INSERT INTO SpamTokens(Token,Spam,Ham) VALUES(@k,@s,@h)
+                ON CONFLICT(Token) DO UPDATE SET Spam=MAX(Spam,excluded.Spam), Ham=MAX(Ham,excluded.Ham)
+                """, new { k = t.Key, s = t.Value[0], h = t.Value[1] }, tx);
+        tx.Commit();
+    }
+
+    public static void RaiseCounterTo(string key, long value) =>
+        Exec("INSERT INTO Counters(Key,Value) VALUES(@key,@value) ON CONFLICT(Key) DO UPDATE SET Value=MAX(Value,excluded.Value)", new { key, value });
+
     // ---------------- Storage ----------------
     public static void Vacuum() => Exec("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;", null);
 }

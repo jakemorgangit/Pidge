@@ -130,6 +130,36 @@ public class FeatureTests(GreenMailFixture server)
     }
 
     [Fact]
+    public void Shared_settings_merge_contacts_and_spam_learning_without_losing_or_double_counting()
+    {
+        var friend = $"friend-{Guid.NewGuid():N}"[..14] + "@example.org";
+        var token = "tok" + Guid.NewGuid().ToString("N")[..8];
+        MailStore.MergeContacts([new ContactRecord { Address = friend, Name = "Old Name", SentCount = 2, ReceivedCount = 5 }]);
+        MailStore.MergeTokens([new KeyValuePair<string, int[]>(token, [3, 1])]);
+        var spamDocsBefore = MailStore.GetCounter("spamDocs");
+
+        // Another PC has written to this friend more often, learned more about the word, and seen a new word.
+        var other = ConfigSync.Capture();
+        other.Contacts = [new ContactRecord { Address = friend, Name = "New Name", SentCount = 7, ReceivedCount = 1 }];
+        var newToken = token + "x";
+        other.SpamTokens = new() { [token] = [5, 0], [newToken] = [2, 2] };
+        other.SpamDocs = spamDocsBefore + 10;
+
+        ConfigSync.Apply(other, merge: false);
+        ConfigSync.Apply(other, merge: false); // applying twice must not double-count
+
+        var contact = MailStore.GetAllContacts().Single(c => c.Address == friend);
+        Assert.Equal(7, contact.SentCount);     // higher count wins
+        Assert.Equal(5, contact.ReceivedCount); // local higher count kept
+        Assert.Equal("Old Name", contact.Name);
+        var tokens = MailStore.LoadTokens();
+        Assert.Equal((5, 1), tokens[token]);
+        Assert.Equal((2, 2), tokens[newToken]);
+        Assert.Equal(spamDocsBefore + 10, MailStore.GetCounter("spamDocs"));
+        Assert.True(SpamEngine.IsKnownCorrespondent(friend)); // the spam filter picks it up immediately
+    }
+
+    [Fact]
     public void Shared_settings_file_is_encrypted_and_needs_the_passphrase()
     {
         var plain = System.Text.Encoding.UTF8.GetBytes("""{"Accounts":[{"Secret":"hunter2"}]}""");

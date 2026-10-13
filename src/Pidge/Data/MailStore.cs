@@ -377,6 +377,7 @@ public static partial class MailStore
                 ON CONFLICT(Address) DO UPDATE SET SentCount=SentCount+1, LastSeenUnix=@n, Name=CASE WHEN @name<>'' THEN @name ELSE Name END
                 """, new { a = address.ToLowerInvariant(), name, n = Now }, tx);
         tx.Commit();
+        Changed(); // people you write to matter for autocomplete and spam, so share them
     }
 
     public static void RecordReceived(IEnumerable<MessageRecord> messages)

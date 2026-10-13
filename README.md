@@ -81,7 +81,7 @@ Type your address. Pidge works out the servers (known providers, your domain's M
 
 Use Pidge on several computers with identical accounts and settings. In **Settings → Sync between PCs**, point each PC at the same folder in Google Drive, OneDrive, Dropbox or a network share (Pidge suggests the ones it finds) and use the same passphrase.
 
-From then on, adding, editing or removing an account, blocking a sender, tags and templates reach your other PCs within seconds. The shared file is encrypted with **AES-256-GCM** using your passphrase, because it holds your mail passwords.
+From then on, accounts (added, edited or removed), blocked senders, tags, templates, your address book and spam-filter learning reach your other PCs within seconds. Contacts and spam learning are merged (the higher count wins), so nothing one PC has learned is lost. On a brand-new install, just turn on sync with the same folder and passphrase and everything comes through. The shared file is encrypted with **AES-256-GCM** using your passphrase, because it holds your mail passwords.
 
 <br clear="right">
 

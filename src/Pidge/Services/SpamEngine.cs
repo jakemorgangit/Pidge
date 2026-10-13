@@ -280,6 +280,7 @@ public static partial class SpamEngine
         }
         MailStore.AddCounter(isSpam ? "spamDocs" : "hamDocs", 1);
         Flush();
+        MailStore.NotifyConfigChanged(); // share what was learned with your other PCs
     }
 
     public static void Flush()
