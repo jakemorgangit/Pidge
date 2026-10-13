@@ -39,6 +39,18 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _status = "";
     [ObservableProperty] private bool _darkReading = AppSettings.Current.DarkReading;
     [ObservableProperty] private bool _canLoadMore;
+    /// <summary>Server path of the open custom folder (when <see cref="Folder"/> is Custom).</summary>
+    [ObservableProperty] private string _folderPath = "";
+    /// <summary>The account the open custom folder belongs to.</summary>
+    [ObservableProperty] private long? _folderAccountId;
+    /// <summary>When set, the list shows everything carrying this tag.</summary>
+    [ObservableProperty] private TagItemViewModel? _selectedTag;
+    [ObservableProperty] private double _uiScale = Math.Clamp(AppSettings.Current.UiScale, MinScale, MaxScale);
+
+    public const double MinScale = 0.8, MaxScale = 1.6;
+
+    public ObservableCollection<FolderChoice> FolderChoices { get; } = new();
+    public ObservableCollection<TagItemViewModel> Tags { get; } = new();
 
     /// <summary>Items currently selected in the message list (multi-select).</summary>
     public IList<MessageItemViewModel> SelectedMessages { get; set; } = [];
@@ -50,19 +62,32 @@ public partial class MainViewModel : ObservableObject
 
     public bool IsUnified => SelectedAccount == null;
     public bool IsDrafts => Folder == FolderKind.Drafts;
+    public bool IsCustomFolder => Folder == FolderKind.Custom && SelectedTag == null;
+    public bool IsTagView => SelectedTag != null;
     public bool HasAccounts => Accounts.Count > 0;
+    public bool HasTags => Tags.Count > 0;
     public bool IsSyncing => SyncingCount > 0;
-    public string ScopeTitle => IsUnified ? "All inboxes" : SelectedAccount!.Name;
-    public string FolderTitle => Folder switch
+    public string ZoomText => $"{UiScale:P0}";
+
+    public string ScopeTitle => IsTagView ? SelectedTag!.Name
+        : IsCustomFolder && IsUnified ? Accounts.FirstOrDefault(a => a.Account.Id == FolderAccountId)?.Name ?? "Folder"
+        : IsUnified ? "All inboxes" : SelectedAccount!.Name;
+
+    public string FolderTitle => IsTagView ? "Tagged mail across all accounts" : Folder switch
     {
         FolderKind.Inbox => "Inbox", FolderKind.Sent => "Sent", FolderKind.Drafts => "Drafts",
-        FolderKind.Archive => "Archive", FolderKind.Junk => "Spam", _ => "Bin"
+        FolderKind.Archive => "Archive", FolderKind.Junk => "Spam", FolderKind.Custom => FolderPath, _ => "Bin"
     };
+
     public string EmptyText => !HasAccounts ? "Add an email account to get started."
         : !string.IsNullOrWhiteSpace(SearchText) ? "No messages match your search."
+        : IsTagView ? "Nothing tagged yet. Tag a message and QuickMail tags similar mail for you."
         : Filter == MessageFilter.Spam ? "No suspected spam. 🎉"
         : Folder == FolderKind.Inbox && Filter == MessageFilter.All ? "You're all caught up."
         : "Nothing here.";
+
+    /// <summary>The account whose mail is listed, for queries and syncing (null = every account).</summary>
+    private long? ListAccountId => IsCustomFolder ? FolderAccountId : SelectedAccount?.Account.Id;
 
     public MainViewModel()
     {
@@ -73,11 +98,17 @@ public partial class MainViewModel : ObservableObject
 
         foreach (var a in MailStore.GetAccounts()) Accounts.Add(new AccountCardViewModel(a));
 
-        _engine.FolderChanged += (id, kind) => OnUi(() =>
+        _engine.FolderChanged += (id, kind, path) => OnUi(() =>
         {
-            if (kind == Folder && (IsUnified || SelectedAccount?.Account.Id == id)) _reloadTimer.Start();
+            bool showing = !IsTagView && kind == Folder && path == (IsCustomFolder ? FolderPath : "")
+                           && (ListAccountId == null || ListAccountId == id);
+            if (showing || IsTagView) _reloadTimer.Start();
             else if (kind == FolderKind.Inbox) { RefreshCounts(); if (IsDashboard) _reloadTimer.Start(); }
         });
+        _engine.FoldersChanged += id => OnUi(() => { if (FolderChoices.Count > 0) LoadFolderChoices(); });
+        ConfigSync.Applied += () => OnUi(() => { ReloadAccounts(); Status = ConfigSync.Status; });
+
+        foreach (var t in MailStore.GetTags()) Tags.Add(new TagItemViewModel(t));
         _engine.SyncState += (id, syncing, error) => OnUi(() =>
         {
             var card = Accounts.FirstOrDefault(c => c.Account.Id == id);
@@ -108,12 +139,178 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnFolderChanged(FolderKind value)
     {
-        OnPropertyChanged(nameof(FolderTitle));
-        OnPropertyChanged(nameof(IsDrafts));
+        if (value != FolderKind.Custom) { FolderPath = ""; FolderAccountId = null; }
+        if (SelectedTag != null) SelectedTag = null;
         if (value != FolderKind.Inbox && Filter == MessageFilter.Spam) Filter = MessageFilter.All;
+        NotifyLocation();
         _limit = 500;
         ReloadList();
         _ = SyncScopeAsync();
+    }
+
+    partial void OnSelectedTagChanged(TagItemViewModel? value)
+    {
+        foreach (var t in Tags) t.IsSelected = t == value;
+        NotifyLocation();
+    }
+
+    private void NotifyLocation()
+    {
+        OnPropertyChanged(nameof(FolderTitle));
+        OnPropertyChanged(nameof(ScopeTitle));
+        OnPropertyChanged(nameof(IsDrafts));
+        OnPropertyChanged(nameof(IsCustomFolder));
+        OnPropertyChanged(nameof(IsTagView));
+    }
+
+    partial void OnUiScaleChanged(double value)
+    {
+        AppSettings.Current.UiScale = value;
+        AppSettings.Save();
+        OnPropertyChanged(nameof(ZoomText));
+    }
+
+    [RelayCommand] private void ZoomIn() => UiScale = Math.Min(MaxScale, Math.Round(UiScale + 0.1, 1));
+    [RelayCommand] private void ZoomOut() => UiScale = Math.Max(MinScale, Math.Round(UiScale - 0.1, 1));
+    [RelayCommand] private void ZoomReset() => UiScale = 1.0;
+
+    // ---------------- Folders ----------------
+    /// <summary>Fills the Folders drop-down: the selected account's folders, or every account's (grouped) in All inboxes.</summary>
+    public void LoadFolderChoices()
+    {
+        FolderChoices.Clear();
+        var cards = IsUnified ? Accounts.ToList() : [SelectedAccount!];
+        foreach (var card in cards)
+        {
+            var folders = MailStore.GetFolders(card.Account.Id);
+            if (folders.Count == 0 && !MailEngine.Offline) _ = Task.Run(() => _engine.RefreshFoldersAsync(card.Account.Id));
+            if (cards.Count > 1) FolderChoices.Add(FolderChoice.Header(card));
+            if (folders.Count == 0)
+            {
+                FolderChoices.Add(FolderChoice.Note(card.Account.Id, MailEngine.Offline ? "No folders" : "Looking for folders…"));
+                continue;
+            }
+            foreach (var f in folders) FolderChoices.Add(FolderChoice.For(f, card, FolderPath == f.Path && FolderAccountId == f.AccountId));
+        }
+    }
+
+    [RelayCommand]
+    private void OpenFolder(FolderChoice choice)
+    {
+        if (!choice.Selectable) return;
+        IsDashboard = false;
+        FolderAccountId = choice.AccountId;
+        FolderPath = choice.Path;
+        if (Folder == FolderKind.Custom && SelectedTag == null)
+        {
+            NotifyLocation();
+            _limit = 500;
+            ReloadList();
+            _ = SyncScopeAsync();
+        }
+        else
+        {
+            SelectedTag = null;
+            Folder = FolderKind.Custom; // triggers reload + sync (keeps FolderPath because it's Custom)
+        }
+    }
+
+    [RelayCommand]
+    private async Task MoveToFolderAsync()
+    {
+        var items = Targets();
+        if (items.Count == 0) return;
+        var accountId = items[0].Record.AccountId;
+        if (items.Any(i => i.Record.AccountId != accountId))
+        {
+            Ui.Info("Pick messages from one account at a time to move them to a folder.", "Move to folder");
+            return;
+        }
+        var choice = Ui.PickFolder(accountId);
+        if (choice == null) return;
+        RemoveAndAdvance(items);
+        await _engine.MoveAsync(items.Select(i => i.Record).ToList(), choice.Value.kind, choice.Value.path);
+        Status = $"Moved {items.Count} message{(items.Count == 1 ? "" : "s")}";
+    }
+
+    // ---------------- Tags ----------------
+    private void ReloadTags()
+    {
+        var fresh = MailStore.GetTags();
+        foreach (var t in Tags.Where(t => fresh.All(f => f.Id != t.Tag.Id)).ToList()) Tags.Remove(t);
+        foreach (var f in fresh)
+        {
+            var vm = Tags.FirstOrDefault(t => t.Tag.Id == f.Id);
+            if (vm == null) Tags.Add(new TagItemViewModel(f));
+            else vm.Update(f);
+        }
+        if (SelectedTag != null && !Tags.Contains(SelectedTag)) SelectedTag = null;
+        OnPropertyChanged(nameof(HasTags));
+    }
+
+    [RelayCommand]
+    private void ShowTag(TagItemViewModel tag)
+    {
+        IsDashboard = false;
+        SelectedTag = tag;
+        _limit = 500;
+        ReloadList();
+    }
+
+    [RelayCommand]
+    private void ToggleTag(TagItemViewModel tag)
+    {
+        var items = Targets();
+        if (items.Count == 0) return;
+        if (items.All(i => i.TagIds.Contains(tag.Tag.Id)))
+        {
+            TagEngine.Untag(items.Select(i => i.Record), tag.Tag);
+            Status = $"Removed \"{tag.Name}\". QuickMail won't tag mail from {(items.Count == 1 ? "this sender" : "these senders")} automatically any more.";
+        }
+        else
+        {
+            var auto = TagEngine.Tag(items.Select(i => i.Record), tag.Tag);
+            Status = $"Tagged \"{tag.Name}\"" + (auto > 0 ? $" · {auto} similar message{(auto == 1 ? "" : "s")} tagged automatically" : "") +
+                     ". Future mail from the same sender will be tagged too.";
+        }
+        ReloadTags();
+        ReloadList();
+        Reader.RefreshTags(Tags);
+    }
+
+    [RelayCommand]
+    private void NewTag()
+    {
+        var name = Ui.AskText("New tag", "Name the tag. Anything you tag teaches QuickMail to tag similar mail from that sender automatically.", "e.g. Invoices, Clients, Travel");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var existing = Tags.FirstOrDefault(t => t.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (existing == null)
+        {
+            var tag = MailStore.CreateTag(name, TagEngine.Palette[Tags.Count % TagEngine.Palette.Length]);
+            ReloadTags();
+            existing = Tags.First(t => t.Tag.Id == tag.Id);
+        }
+        if (Targets().Count > 0 && !IsDashboard) ToggleTag(existing);
+    }
+
+    [RelayCommand]
+    private void DeleteTag(TagItemViewModel tag)
+    {
+        if (!Ui.Confirm($"Delete the tag \"{tag.Name}\"? Messages aren't deleted, they just lose the tag.", "Delete tag")) return;
+        MailStore.DeleteTag(tag.Tag.Id);
+        ReloadTags();
+        ReloadList();
+    }
+
+    [RelayCommand]
+    private void RenameTag(TagItemViewModel tag)
+    {
+        var name = Ui.AskText("Rename tag", "New name for this tag:", tag.Name);
+        if (string.IsNullOrWhiteSpace(name)) return;
+        tag.Tag.Name = name.Trim();
+        MailStore.UpdateTag(tag.Tag);
+        ReloadTags();
+        ReloadList();
     }
 
     partial void OnFilterChanged(MessageFilter value) => ReloadList();
@@ -138,8 +335,9 @@ public partial class MainViewModel : ObservableObject
     private void ShowUnified()
     {
         IsDashboard = false;
-        if (SelectedAccount == null) return;
+        if (SelectedAccount == null && !IsCustomFolder && !IsTagView) return;
         SelectedAccount = null;
+        if (LeaveFolderOrTag()) return;
         ReloadList();
         _ = SyncScopeAsync();
     }
@@ -148,11 +346,22 @@ public partial class MainViewModel : ObservableObject
     private void SelectAccount(AccountCardViewModel card)
     {
         IsDashboard = false;
-        if (SelectedAccount == card) return;
+        if (SelectedAccount == card && !IsCustomFolder && !IsTagView) return;
         SelectedAccount = card;
         _limit = 500;
+        if (LeaveFolderOrTag()) return;
         ReloadList();
         _ = SyncScopeAsync();
+    }
+
+    /// <summary>Picking an account or All inboxes leaves a custom folder / tag view and goes back to the inbox.</summary>
+    private bool LeaveFolderOrTag()
+    {
+        if (!IsCustomFolder && !IsTagView) return false;
+        SelectedTag = null;
+        if (Folder != FolderKind.Inbox) { Folder = FolderKind.Inbox; return true; }
+        NotifyLocation();
+        return false;
     }
 
     public void SelectAccountByIndex(int index)
@@ -205,10 +414,21 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private Task RefreshAsync() => IsUnified ? _engine.SyncAllAsync(Folder) : _engine.SyncFolderAsync(SelectedAccount!.Account.Id, Folder);
+    private Task RefreshAsync()
+    {
+        foreach (var id in (IsUnified ? Accounts.Select(a => a.Account.Id) : [SelectedAccount!.Account.Id]).ToList())
+            _ = Task.Run(() => _engine.RefreshFoldersAsync(id));
+        return SyncScopeAsync();
+    }
 
-    private Task SyncScopeAsync() =>
-        Task.Run(() => IsUnified ? _engine.SyncAllAsync(Folder) : _engine.SyncFolderAsync(SelectedAccount!.Account.Id, Folder));
+    private Task SyncScopeAsync()
+    {
+        if (IsTagView) return Task.Run(() => _engine.SyncAllAsync(FolderKind.Inbox));
+        var kind = Folder;
+        var path = IsCustomFolder ? FolderPath : "";
+        var account = ListAccountId;
+        return Task.Run(() => account == null ? _engine.SyncAllAsync(kind) : _engine.SyncFolderAsync(account.Value, kind, path));
+    }
 
     [RelayCommand]
     private async Task LoadMoreAsync()
@@ -219,11 +439,14 @@ public partial class MainViewModel : ObservableObject
         if (Messages.Count > before) return;
 
         Status = "Fetching older messages…";
-        var ids = IsUnified ? Accounts.Select(a => a.Account.Id).ToList() : [SelectedAccount!.Account.Id];
+        if (IsTagView) return;
+        var ids = ListAccountId == null ? Accounts.Select(a => a.Account.Id).ToList() : [ListAccountId.Value];
+        var kind = Folder;
+        var path = IsCustomFolder ? FolderPath : "";
         int total = 0;
         foreach (var id in ids)
         {
-            try { total += await Task.Run(() => _engine.LoadOlderAsync(id, Folder)); }
+            try { total += await Task.Run(() => _engine.LoadOlderAsync(id, kind, path)); }
             catch (Exception ex) { Status = AccountSession.Friendly(ex); }
         }
         Status = total == 0 ? "No older messages on the server." : $"Loaded {total} older messages.";
@@ -233,16 +456,23 @@ public partial class MainViewModel : ObservableObject
     public void ReloadList()
     {
         var byId = Accounts.ToDictionary(a => a.Account.Id, a => a.Account);
-        var records = MailStore.QueryMessages(SelectedAccount?.Account.Id, Folder, Filter, SearchText, _limit)
+        var records = (IsTagView
+                ? MailStore.QueryTagged(SelectedTag!.Tag.Id, Filter, SearchText, _limit)
+                : MailStore.QueryMessages(ListAccountId, Folder, Filter, SearchText, _limit, IsCustomFolder ? FolderPath : ""))
             .Where(r => byId.ContainsKey(r.AccountId)).ToList();
-        CanLoadMore = string.IsNullOrWhiteSpace(SearchText) && Filter != MessageFilter.Spam && records.Count > 0;
+        CanLoadMore = string.IsNullOrWhiteSpace(SearchText) && Filter != MessageFilter.Spam && !IsTagView && records.Count > 0;
+
+        var tagMap = MailStore.TagsForMessages(records);
+        var tagById = Tags.ToDictionary(t => t.Tag.Id);
 
         var existing = Messages.ToDictionary(m => m.Id);
         var result = new List<MessageItemViewModel>(records.Count);
         foreach (var r in records)
         {
-            if (existing.TryGetValue(r.Id, out var vm)) { vm.Update(r); result.Add(vm); }
-            else result.Add(new MessageItemViewModel(r, byId[r.AccountId]));
+            if (!existing.TryGetValue(r.Id, out var vm)) vm = new MessageItemViewModel(r, byId[r.AccountId]);
+            else vm.Update(r);
+            vm.SetTags(tagMap.GetValueOrDefault((r.AccountId, r.MessageKey)) ?? [], tagById);
+            result.Add(vm);
         }
 
         // Merge in place so scroll position and selection survive background syncs.
@@ -284,6 +514,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         Reader.Begin(item);
+        Reader.RefreshTags(Tags);
         RenderHtml?.Invoke("");
         try
         {
@@ -632,6 +863,11 @@ public partial class MainViewModel : ObservableObject
     public void ReloadAccounts()
     {
         var accounts = MailStore.GetAccounts();
+        foreach (var gone in Accounts.Where(c => accounts.All(a => a.Id != c.Account.Id)).ToList())
+        {
+            if (SelectedAccount == gone) SelectedAccount = null;
+            Accounts.Remove(gone);
+        }
         foreach (var a in accounts)
         {
             var card = Accounts.FirstOrDefault(c => c.Account.Id == a.Id);
@@ -639,6 +875,14 @@ public partial class MainViewModel : ObservableObject
             else card.Account = a;
             _engine.Register(a);
         }
+        // keep the sidebar order in line with the shared order
+        for (int i = 0; i < accounts.Count; i++)
+        {
+            var at = Accounts.IndexOf(Accounts.First(c => c.Account.Id == accounts[i].Id));
+            if (at != i) Accounts.Move(at, i);
+        }
+        ReloadTags();
+        DarkReading = AppSettings.Current.DarkReading;
         OnPropertyChanged(nameof(HasAccounts));
         ReloadList();
         RefreshCounts();

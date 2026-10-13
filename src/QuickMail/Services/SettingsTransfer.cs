@@ -50,6 +50,8 @@ public static class SettingsTransfer
         public long SpamDocs { get; set; }
         public long HamDocs { get; set; }
         public AppSettings? Settings { get; set; }
+        /// <summary>Full shared state (accounts with stable ids, tags, templates...). Newer backups use this.</summary>
+        public ConfigSync.SharedState? State { get; set; }
     }
 
     public record ImportResult(int AccountsAdded, int AccountsUpdated, int BlockedAdded, List<MailAccount> Accounts);
@@ -72,7 +74,8 @@ public static class SettingsTransfer
             SpamTokens = MailStore.LoadTokens().ToDictionary(t => t.Key, t => new[] { t.Value.spam, t.Value.ham }),
             SpamDocs = MailStore.GetCounter("spamDocs"),
             HamDocs = MailStore.GetCounter("hamDocs"),
-            Settings = AppSettings.Current
+            Settings = AppSettings.Current,
+            State = ConfigSync.Capture()
         };
         using (var c = Db.Open()) bundle.Contacts = c.Query<ContactRecord>("SELECT * FROM Contacts").ToList();
 
@@ -102,6 +105,18 @@ public static class SettingsTransfer
 
         var existing = MailStore.GetAccounts();
         int added = 0, updated = 0;
+        if (bundle.State != null)
+        {
+            var before = existing.Select(a => a.Email.ToLowerInvariant()).ToHashSet();
+            var blockedCount = MailStore.GetBlocked().Count;
+            ConfigSync.Apply(bundle.State, merge: true);
+            var after = MailStore.GetAccounts();
+            added = after.Count(a => !before.Contains(a.Email.ToLowerInvariant()));
+            updated = after.Count - added;
+            ImportExtras(bundle);
+            MailStore.NotifyConfigChanged();
+            return new ImportResult(added, updated, MailStore.GetBlocked().Count - blockedCount, after);
+        }
         foreach (var e in bundle.Accounts)
         {
             var match = existing.FirstOrDefault(a => a.Email.Equals(e.Email, StringComparison.OrdinalIgnoreCase));
@@ -119,7 +134,14 @@ public static class SettingsTransfer
         var blockedBefore = MailStore.GetBlocked().Count;
         foreach (var b in bundle.BlockedSenders) MailStore.AddBlocked(b);
         foreach (var t in bundle.TrustedSenders) MailStore.AddTrusted(t);
+        ImportExtras(bundle);
+        SpamEngine.Load();
+        return new ImportResult(added, updated, MailStore.GetBlocked().Count - blockedBefore, existing);
+    }
 
+    /// <summary>Contacts, spam learning and machine settings, which live outside the shared state.</summary>
+    private static void ImportExtras(Bundle bundle)
+    {
         using (var c = Db.Open())
         using (var tx = c.BeginTransaction())
         {
@@ -153,12 +175,11 @@ public static class SettingsTransfer
         }
 
         SpamEngine.Load();
-        return new ImportResult(added, updated, MailStore.GetBlocked().Count - blockedBefore, existing);
     }
 
-    private static byte[] Encrypt(byte[] plain, string password)
+    internal static byte[] Encrypt(byte[] plain, string password)
     {
-        var salt = RandomNumberGenerator.GetBytes(16);
+        var salt = SaltFor(password);
         var nonce = RandomNumberGenerator.GetBytes(12);
         var key = DeriveKey(password, salt);
         var cipher = new byte[plain.Length];
@@ -183,7 +204,20 @@ public static class SettingsTransfer
         return ms.ToArray();
     }
 
-    private static byte[] Decrypt(byte[] file, string password)
+    private static readonly Dictionary<string, byte[]> Salts = new();
+
+    /// <summary>One random salt per password per run (a fresh nonce is still used for every file).</summary>
+    private static byte[] SaltFor(string password)
+    {
+        lock (Salts)
+        {
+            var id = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(password)));
+            if (!Salts.TryGetValue(id, out var salt)) Salts[id] = salt = RandomNumberGenerator.GetBytes(16);
+            return salt;
+        }
+    }
+
+    internal static byte[] Decrypt(byte[] file, string password)
     {
         const int header = 4 + 1 + 16 + 12 + 16;
         if (file.Length < header || !file.AsSpan(0, 4).SequenceEqual(Magic))
@@ -212,6 +246,18 @@ public static class SettingsTransfer
         }
     }
 
-    private static byte[] DeriveKey(string password, byte[] salt) =>
-        Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(password), salt, Iterations, HashAlgorithmName.SHA256, 32);
+    // PBKDF2 at 600k iterations is deliberately slow; cache keys so live settings sync stays quick.
+    private static readonly Dictionary<string, byte[]> KeyCache = new();
+
+    private static byte[] DeriveKey(string password, byte[] salt)
+    {
+        var cacheKey = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(password + "|" + Convert.ToBase64String(salt))));
+        lock (KeyCache)
+        {
+            if (KeyCache.TryGetValue(cacheKey, out var k)) return (byte[])k.Clone();
+        }
+        var key = Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(password), salt, Iterations, HashAlgorithmName.SHA256, 32);
+        lock (KeyCache) KeyCache[cacheKey] = (byte[])key.Clone();
+        return key;
+    }
 }

@@ -39,7 +39,7 @@ public class AccountStat
 }
 
 /// <summary>All SQLite access lives here.</summary>
-public static class MailStore
+public static partial class MailStore
 {
     private static long Now => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
@@ -54,11 +54,13 @@ public static class MailStore
     {
         using var c = Db.Open();
         a.SortOrder = c.ExecuteScalar<int>("SELECT COALESCE(MAX(SortOrder),0)+1 FROM Accounts");
+        if (string.IsNullOrEmpty(a.AccountGuid)) a.AccountGuid = Guid.NewGuid().ToString("N");
         a.Id = c.ExecuteScalar<long>("""
-            INSERT INTO Accounts(DisplayName,Email,SenderName,Color,ImapHost,ImapPort,ImapSecurity,SmtpHost,SmtpPort,SmtpSecurity,Username,ProtectedPassword,Signature,SortOrder)
-            VALUES(@DisplayName,@Email,@SenderName,@Color,@ImapHost,@ImapPort,@ImapSecurity,@SmtpHost,@SmtpPort,@SmtpSecurity,@Username,@ProtectedPassword,@Signature,@SortOrder);
+            INSERT INTO Accounts(AccountGuid,AuthMethod,DisplayName,Email,SenderName,Color,ImapHost,ImapPort,ImapSecurity,SmtpHost,SmtpPort,SmtpSecurity,Username,ProtectedPassword,Signature,SortOrder)
+            VALUES(@AccountGuid,@AuthMethod,@DisplayName,@Email,@SenderName,@Color,@ImapHost,@ImapPort,@ImapSecurity,@SmtpHost,@SmtpPort,@SmtpSecurity,@Username,@ProtectedPassword,@Signature,@SortOrder);
             SELECT last_insert_rowid();
             """, a);
+        Changed();
         return a.Id;
     }
 
@@ -66,11 +68,25 @@ public static class MailStore
     {
         using var c = Db.Open();
         c.Execute("""
-            UPDATE Accounts SET DisplayName=@DisplayName,Email=@Email,SenderName=@SenderName,Color=@Color,ImapHost=@ImapHost,ImapPort=@ImapPort,
+            UPDATE Accounts SET AuthMethod=@AuthMethod,DisplayName=@DisplayName,Email=@Email,SenderName=@SenderName,Color=@Color,ImapHost=@ImapHost,ImapPort=@ImapPort,
             ImapSecurity=@ImapSecurity,SmtpHost=@SmtpHost,SmtpPort=@SmtpPort,SmtpSecurity=@SmtpSecurity,Username=@Username,
             ProtectedPassword=@ProtectedPassword,Signature=@Signature,SortOrder=@SortOrder WHERE Id=@Id
             """, a);
+        Changed();
     }
+
+    /// <summary>Raised whenever shared configuration changes (accounts, block list, tags, templates).</summary>
+    public static event Action? ConfigChanged;
+
+    /// <summary>Suppresses <see cref="ConfigChanged"/> while applying settings received from another PC.</summary>
+    public static bool SuppressConfigEvents { get; set; }
+
+    private static void Changed()
+    {
+        if (!SuppressConfigEvents) ConfigChanged?.Invoke();
+    }
+
+    public static void NotifyConfigChanged() => Changed();
 
     public static void SetLastSync(long accountId)
     {
@@ -89,40 +105,48 @@ public static class MailStore
             c.Execute("UPDATE Accounts SET SortOrder=@SortOrder WHERE Id=@Id", a, tx);
         }
         tx.Commit();
+        Changed();
     }
 
     public static void DeleteAccount(long id)
     {
         using (var c = Db.Open())
         {
-            c.Execute("DELETE FROM Messages WHERE AccountId=@id; DELETE FROM Accounts WHERE Id=@id;", new { id });
+            c.Execute("""
+                DELETE FROM Messages WHERE AccountId=@id; DELETE FROM Folders WHERE AccountId=@id;
+                DELETE FROM MessageTags WHERE AccountId=@id; DELETE FROM Accounts WHERE Id=@id;
+                """, new { id });
         }
         try { Directory.Delete(Path.Combine(Db.CacheDir, id.ToString()), true); } catch { /* cache is optional */ }
+        Changed();
     }
 
     // ---------------- Messages: sync helpers ----------------
-    public static long GetMaxUid(long accountId, FolderKind folder)
+    // `path` is only used for FolderKind.Custom folders and is "" for the special folders.
+    private const string Where = "AccountId=@accountId AND Folder=@folder AND FolderPath=@path";
+
+    public static long GetMaxUid(long accountId, FolderKind folder, string path = "")
     {
         using var c = Db.Open();
-        return c.ExecuteScalar<long?>("SELECT MAX(Uid) FROM Messages WHERE AccountId=@accountId AND Folder=@folder", new { accountId, folder }) ?? 0;
+        return c.ExecuteScalar<long?>($"SELECT MAX(Uid) FROM Messages WHERE {Where}", new { accountId, folder, path }) ?? 0;
     }
 
-    public static long GetMinUid(long accountId, FolderKind folder)
+    public static long GetMinUid(long accountId, FolderKind folder, string path = "")
     {
         using var c = Db.Open();
-        return c.ExecuteScalar<long?>("SELECT MIN(Uid) FROM Messages WHERE AccountId=@accountId AND Folder=@folder", new { accountId, folder }) ?? 0;
+        return c.ExecuteScalar<long?>($"SELECT MIN(Uid) FROM Messages WHERE {Where}", new { accountId, folder, path }) ?? 0;
     }
 
-    public static long GetUidValidity(long accountId, FolderKind folder)
+    public static long GetUidValidity(long accountId, FolderKind folder, string path = "")
     {
         using var c = Db.Open();
-        return c.ExecuteScalar<long?>("SELECT UidValidity FROM Messages WHERE AccountId=@accountId AND Folder=@folder LIMIT 1", new { accountId, folder }) ?? 0;
+        return c.ExecuteScalar<long?>($"SELECT UidValidity FROM Messages WHERE {Where} LIMIT 1", new { accountId, folder, path }) ?? 0;
     }
 
-    public static void ClearFolder(long accountId, FolderKind folder)
+    public static void ClearFolder(long accountId, FolderKind folder, string path = "")
     {
         using var c = Db.Open();
-        c.Execute("DELETE FROM Messages WHERE AccountId=@accountId AND Folder=@folder", new { accountId, folder });
+        c.Execute($"DELETE FROM Messages WHERE {Where}", new { accountId, folder, path });
     }
 
     public static void InsertMessages(IEnumerable<MessageRecord> records)
@@ -130,40 +154,40 @@ public static class MailStore
         using var c = Db.Open();
         using var tx = c.BeginTransaction();
         c.Execute("""
-            INSERT OR IGNORE INTO Messages(AccountId,Folder,Uid,UidValidity,MessageId,InReplyTo,Refs,Subject,FromName,FromAddress,ReplyTo,ToList,CcList,
+            INSERT OR IGNORE INTO Messages(AccountId,Folder,FolderPath,Uid,UidValidity,MessageId,InReplyTo,Refs,Subject,FromName,FromAddress,ReplyTo,ToList,CcList,
                 DateUnix,Preview,IsRead,IsFlagged,IsAnswered,HasAttachments,IsSpam,SpamScore,SpamReasons,Category,ListUnsubscribe,Size)
-            VALUES(@AccountId,@Folder,@Uid,@UidValidity,@MessageId,@InReplyTo,@Refs,@Subject,@FromName,@FromAddress,@ReplyTo,@ToList,@CcList,
+            VALUES(@AccountId,@Folder,@FolderPath,@Uid,@UidValidity,@MessageId,@InReplyTo,@Refs,@Subject,@FromName,@FromAddress,@ReplyTo,@ToList,@CcList,
                 @DateUnix,@Preview,@IsRead,@IsFlagged,@IsAnswered,@HasAttachments,@IsSpam,@SpamScore,@SpamReasons,@Category,@ListUnsubscribe,@Size)
             """, records, tx);
         tx.Commit();
     }
 
-    public static Dictionary<long, (bool read, bool flagged, bool answered)> GetLocalFlags(long accountId, FolderKind folder, long fromUid, long toUid)
+    public static Dictionary<long, (bool read, bool flagged, bool answered)> GetLocalFlags(long accountId, FolderKind folder, string path, long fromUid, long toUid)
     {
         using var c = Db.Open();
         return c.Query<(long Uid, bool IsRead, bool IsFlagged, bool IsAnswered)>(
-                "SELECT Uid, IsRead, IsFlagged, IsAnswered FROM Messages WHERE AccountId=@accountId AND Folder=@folder AND Uid>=@fromUid AND Uid<=@toUid",
-                new { accountId, folder, fromUid, toUid })
+                $"SELECT Uid, IsRead, IsFlagged, IsAnswered FROM Messages WHERE {Where} AND Uid>=@fromUid AND Uid<=@toUid",
+                new { accountId, folder, path, fromUid, toUid })
             .ToDictionary(r => r.Uid, r => (r.IsRead, r.IsFlagged, r.IsAnswered));
     }
 
-    public static void ApplyFlagChanges(long accountId, FolderKind folder,
+    public static void ApplyFlagChanges(long accountId, FolderKind folder, string path,
         IEnumerable<(long uid, bool read, bool flagged, bool answered)> changes, IEnumerable<long> vanished)
     {
         using var c = Db.Open();
         using var tx = c.BeginTransaction();
         foreach (var ch in changes)
-            c.Execute("UPDATE Messages SET IsRead=@read, IsFlagged=@flagged, IsAnswered=@answered WHERE AccountId=@accountId AND Folder=@folder AND Uid=@uid",
-                new { ch.read, ch.flagged, ch.answered, accountId, folder, ch.uid }, tx);
+            c.Execute($"UPDATE Messages SET IsRead=@read, IsFlagged=@flagged, IsAnswered=@answered WHERE {Where} AND Uid=@uid",
+                new { ch.read, ch.flagged, ch.answered, accountId, folder, path, ch.uid }, tx);
         foreach (var uid in vanished)
-            c.Execute("DELETE FROM Messages WHERE AccountId=@accountId AND Folder=@folder AND Uid=@uid", new { accountId, folder, uid }, tx);
+            c.Execute($"DELETE FROM Messages WHERE {Where} AND Uid=@uid", new { accountId, folder, path, uid }, tx);
         tx.Commit();
     }
 
     // ---------------- Messages: UI ----------------
-    public static List<MessageRecord> QueryMessages(long? accountId, FolderKind folder, MessageFilter filter, string? search, int limit)
+    public static List<MessageRecord> QueryMessages(long? accountId, FolderKind folder, MessageFilter filter, string? search, int limit, string path = "")
     {
-        var sql = new System.Text.StringBuilder("SELECT * FROM Messages WHERE Folder=@folder");
+        var sql = new System.Text.StringBuilder("SELECT * FROM Messages WHERE Folder=@folder AND FolderPath=@path");
         if (accountId.HasValue) sql.Append(" AND AccountId=@accountId");
         if (folder != FolderKind.Junk)
             sql.Append(filter == MessageFilter.Spam ? " AND IsSpam=1" : " AND IsSpam=0");
@@ -178,7 +202,28 @@ public static class MailStore
         sql.Append(" ORDER BY DateUnix DESC LIMIT @limit");
 
         using var c = Db.Open();
-        return c.Query<MessageRecord>(sql.ToString(), new { folder, accountId, q = $"%{search?.Trim()}%", limit }).ToList();
+        return c.Query<MessageRecord>(sql.ToString(), new { folder, path, accountId, q = $"%{search?.Trim()}%", limit }).ToList();
+    }
+
+    /// <summary>Everything carrying a tag, across all accounts and folders (except spam and bin).</summary>
+    public static List<MessageRecord> QueryTagged(long tagId, MessageFilter filter, string? search, int limit)
+    {
+        var sql = new System.Text.StringBuilder("""
+            SELECT m.* FROM Messages m JOIN MessageTags t ON t.AccountId=m.AccountId AND t.MessageKey =
+                CASE WHEN m.MessageId<>'' THEN m.MessageId ELSE 'uid:' || m.Folder || ':' || m.FolderPath || ':' || m.Uid END
+            WHERE t.TagId=@tagId AND m.Folder NOT IN (4,5)
+            """);
+        switch (filter)
+        {
+            case MessageFilter.Unread: sql.Append(" AND m.IsRead=0"); break;
+            case MessageFilter.Flagged: sql.Append(" AND m.IsFlagged=1"); break;
+            case MessageFilter.Attachments: sql.Append(" AND m.HasAttachments=1"); break;
+        }
+        if (!string.IsNullOrWhiteSpace(search))
+            sql.Append(" AND (m.Subject LIKE @q OR m.FromName LIKE @q OR m.FromAddress LIKE @q OR m.Preview LIKE @q)");
+        sql.Append(" GROUP BY m.Id ORDER BY m.DateUnix DESC LIMIT @limit");
+        using var c = Db.Open();
+        return c.Query<MessageRecord>(sql.ToString(), new { tagId, q = $"%{search?.Trim()}%", limit }).ToList();
     }
 
     public static MessageRecord? GetMessage(long id)
@@ -315,7 +360,11 @@ public static class MailStore
         return c.Query<string>("SELECT Address FROM TrustedSenders").ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    public static void AddTrusted(string address) => Exec("INSERT OR IGNORE INTO TrustedSenders(Address) VALUES(@a)", new { a = address.ToLowerInvariant() });
+    public static void AddTrusted(string address)
+    {
+        Exec("INSERT OR IGNORE INTO TrustedSenders(Address) VALUES(@a)", new { a = address.ToLowerInvariant() });
+        Changed();
+    }
 
     // ---------------- Contacts ----------------
     public static void RecordSent(IEnumerable<(string address, string name)> recipients)

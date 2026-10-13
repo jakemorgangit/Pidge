@@ -4,7 +4,7 @@
     can install silently. Each release is a major upgrade that replaces the previous version.
   -->
   <Package Name="QuickMail"
-           Manufacturer="Jake Morgan"
+           Manufacturer="Blackcat Data Solutions Limited"
            Version="$(var.Version)"
            UpgradeCode="E40D1FD5-3904-4022-99C6-F76043C2F929"
            Scope="perUser"

@@ -87,6 +87,18 @@ public partial class MessageItemViewModel : ObservableObject
         }
     }
 
+    /// <summary>Ids of the tags on this message, and chips to draw for them.</summary>
+    public IReadOnlyList<long> TagIds { get; private set; } = [];
+    [ObservableProperty] private IReadOnlyList<TagChip> _tagChips = [];
+
+    public void SetTags(IReadOnlyList<long> ids, IReadOnlyDictionary<long, TagItemViewModel> tags)
+    {
+        if (ids.SequenceEqual(TagIds) && TagChips.Count == ids.Count(tags.ContainsKey)
+            && TagChips.Select(t => t.Name).SequenceEqual(ids.Where(tags.ContainsKey).Select(i => tags[i].Name))) return;
+        TagIds = ids;
+        TagChips = ids.Where(tags.ContainsKey).Select(i => new TagChip(tags[i].Name, tags[i].Brush)).ToList();
+    }
+
     public void Update(MessageRecord fresh)
     {
         Record = fresh;
@@ -111,4 +123,57 @@ public partial class MessageItemViewModel : ObservableObject
             return string.IsNullOrWhiteSpace(mb.Name) ? mb.Address : mb.Name;
         return list;
     }
+}
+
+public record TagChip(string Name, SolidColorBrush Brush);
+
+public partial class TagItemViewModel : ObservableObject
+{
+    public TagInfo Tag { get; private set; }
+    [ObservableProperty] private bool _isSelected;
+    [ObservableProperty] private int _count;
+
+    public TagItemViewModel(TagInfo tag)
+    {
+        Tag = tag;
+        _count = tag.Count;
+    }
+
+    public string Name => Tag.Name;
+    public SolidColorBrush Brush => Palette.FromHex(Tag.Color);
+
+    public void Update(TagInfo fresh)
+    {
+        Tag = fresh;
+        Count = fresh.Count;
+        OnPropertyChanged(nameof(Name));
+        OnPropertyChanged(nameof(Brush));
+    }
+}
+
+/// <summary>A row in the Folders drop-down: an account header, a folder, or a short note.</summary>
+public class FolderChoice
+{
+    public long AccountId { get; init; }
+    public string Path { get; init; } = "";
+    public string Name { get; init; } = "";
+    public int Depth { get; init; }
+    public int Unread { get; init; }
+    public bool Selectable { get; init; }
+    public bool IsHeader { get; init; }
+    public bool IsNote { get; init; }
+    public bool IsCurrent { get; init; }
+    public SolidColorBrush? AccountBrush { get; init; }
+    public System.Windows.Thickness Indent => new(12 + Depth * 16, 0, 0, 0);
+
+    public static FolderChoice Header(AccountCardViewModel card) =>
+        new() { AccountId = card.Account.Id, Name = card.Name, IsHeader = true, AccountBrush = card.ColorBrush };
+
+    public static FolderChoice Note(long accountId, string text) => new() { AccountId = accountId, Name = text, IsNote = true };
+
+    public static FolderChoice For(FolderInfo f, AccountCardViewModel card, bool current) => new()
+    {
+        AccountId = f.AccountId, Path = f.Path, Name = f.Name, Depth = f.Depth, Unread = f.Unread,
+        Selectable = f.Selectable, AccountBrush = card.ColorBrush, IsCurrent = current
+    };
 }

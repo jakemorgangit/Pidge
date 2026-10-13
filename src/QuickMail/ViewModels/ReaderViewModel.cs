@@ -26,6 +26,16 @@ public partial class ReaderViewModel : ObservableObject
     [ObservableProperty] private bool _isFromKnownContact;
 
     public ObservableCollection<AttachmentInfo> Attachments { get; } = new();
+    public ObservableCollection<TagItemViewModel> MessageTags { get; } = new();
+
+    /// <summary>Refreshes the tag chips shown under the subject.</summary>
+    public void RefreshTags(IEnumerable<TagItemViewModel> allTags)
+    {
+        MessageTags.Clear();
+        if (Item == null) return;
+        var ids = QuickMail.Data.MailStore.TagsForMessages([Item.Record]).GetValueOrDefault((Item.Record.AccountId, Item.Record.MessageKey)) ?? [];
+        foreach (var t in allTags.Where(t => ids.Contains(t.Tag.Id))) MessageTags.Add(t);
+    }
 
     public bool HasMessage => Item != null;
     public bool AllowRemoteOnce { get; set; }

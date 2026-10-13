@@ -18,6 +18,20 @@ public class AppSettings
     public double WindowHeight { get; set; } = 880;
     public bool WindowMaximized { get; set; }
 
+    /// <summary>Interface zoom (1.0 = 100%). Ctrl + mouse wheel changes it.</summary>
+    public double UiScale { get; set; } = 1.0;
+    /// <summary>Remove downloaded message bodies not opened for this many days (0 = keep). Headers always stay.</summary>
+    public int CacheRetentionDays { get; set; }
+    public DateTime LastCompactUtc { get; set; }
+    /// <summary>Overrides the built-in Microsoft Entra application (client) ID used for "Sign in with Microsoft".</summary>
+    public string MicrosoftClientId { get; set; } = "";
+
+    // ---- Shared settings between PCs (machine-local; never synced themselves) ----
+    public string SharedFolder { get; set; } = "";
+    public string SharedPassphraseProtected { get; set; } = "";
+    public long SharedRevisionApplied { get; set; }
+    public string MachineId { get; set; } = Guid.NewGuid().ToString("N");
+
     private static string FilePath => Path.Combine(Db.DataDir, "settings.json");
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 

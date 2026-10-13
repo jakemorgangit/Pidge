@@ -24,6 +24,20 @@ public static class Ui
 
     public static bool Confirm(string message, string title) => Dialog(title, message, "OK", "Cancel", null, false).ok;
 
+    /// <summary>Asks for a line of text; returns null if cancelled.</summary>
+    public static string? AskText(string title, string message, string initial)
+    {
+        var (ok, value) = Dialog(title, message, "OK", "Cancel", "text:" + initial, false);
+        return ok ? value : null;
+    }
+
+    /// <summary>Lets the user choose a destination folder in one account.</summary>
+    public static (QuickMail.Models.FolderKind kind, string path)? PickFolder(long accountId)
+    {
+        var w = new FolderPickerWindow(accountId) { Owner = Owner };
+        return w.ShowDialog() == true ? w.Result : null;
+    }
+
     public static void Info(string message, string title) => Dialog(title, message, "OK", null, null, false);
 
     /// <summary>Asks for a password. When <paramref name="confirm"/> is true the user must type it twice.</summary>
@@ -57,8 +71,15 @@ public static class Ui
         });
 
         PasswordBox? pw1 = null, pw2 = null;
+        TextBox? text = null;
         var error = new TextBlock { Foreground = (System.Windows.Media.Brush)Application.Current.Resources["DangerBrush"], Margin = new Thickness(0, 8, 0, 0), Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
-        if (input != null)
+        if (input != null && input.StartsWith("text:"))
+        {
+            text = new TextBox { Margin = new Thickness(0, 16, 0, 0), Text = input[5..] };
+            text.SelectAll();
+            root.Children.Add(text);
+        }
+        else if (input != null)
         {
             pw1 = new PasswordBox { Margin = new Thickness(0, 16, 0, 0) };
             root.Children.Add(pw1);
@@ -95,8 +116,13 @@ public static class Ui
         root.Children.Add(buttons);
 
         window.Content = root;
-        window.Loaded += (_, _) => { if (pw1 != null) Keyboard.Focus(pw1); else Keyboard.Focus(okButton); };
+        window.Loaded += (_, _) =>
+        {
+            if (text != null) { Keyboard.Focus(text); text.SelectAll(); }
+            else if (pw1 != null) Keyboard.Focus(pw1);
+            else Keyboard.Focus(okButton);
+        };
         window.ShowDialog();
-        return (ok, pw1?.Password);
+        return (ok, text?.Text ?? pw1?.Password);
     }
 }

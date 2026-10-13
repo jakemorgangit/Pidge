@@ -17,6 +17,7 @@ public sealed class AccountSession : IDisposable
 {
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly Dictionary<FolderKind, IMailFolder?> _folders = new();
+    private readonly Dictionary<string, IMailFolder> _customFolders = new(StringComparer.Ordinal);
     private ImapClient? _imap;
 
     public MailAccount Account { get; private set; }
@@ -43,15 +44,31 @@ public sealed class AccountSession : IDisposable
         Drop();
         var client = new ImapClient { Timeout = 30_000 };
         await client.ConnectAsync(Account.ImapHost, Account.ImapPort, (SecureSocketOptions)Account.ImapSecurity, ct);
-        client.AuthenticationMechanisms.Remove("XOAUTH2");
-        await client.AuthenticateAsync(Account.Username, Secrets.Unprotect(Account.ProtectedPassword), ct);
+        await AuthenticateAsync(client, Account, null, ct);
         _imap = client;
         return client;
+    }
+
+    /// <summary>Password or OAuth sign-in. <paramref name="secret"/> overrides the stored password/token (used when testing).</summary>
+    private static async Task AuthenticateAsync(MailService client, MailAccount account, string? secret, CancellationToken ct)
+    {
+        if (account.AuthMethod == AuthMethod.MicrosoftOAuth)
+        {
+            var token = secret ?? await MicrosoftAuth.GetAccessTokenAsync(account, ct);
+            await client.AuthenticateAsync(new SaslMechanismOAuth2(account.Username, token), ct);
+        }
+        else
+        {
+            client.AuthenticationMechanisms.Remove("XOAUTH2");
+            client.AuthenticationMechanisms.Remove("OAUTHBEARER");
+            await client.AuthenticateAsync(account.Username, secret ?? Secrets.Unprotect(account.ProtectedPassword), ct);
+        }
     }
 
     private void Drop()
     {
         _folders.Clear();
+        _customFolders.Clear();
         if (_imap == null) return;
         try { if (_imap.IsConnected) _imap.Disconnect(true); } catch { /* ignore */ }
         _imap.Dispose();
@@ -90,9 +107,23 @@ public sealed class AccountSession : IDisposable
             or ImapProtocolException or ObjectDisposedException;
 
     /// <summary>Finds the server folder for a logical folder kind (SPECIAL-USE first, then common names).</summary>
-    public async Task<IMailFolder?> GetFolderAsync(ImapClient client, FolderKind kind, CancellationToken ct = default)
+    public async Task<IMailFolder?> GetFolderAsync(ImapClient client, FolderKind kind, string path = "", CancellationToken ct = default)
     {
         if (kind == FolderKind.Inbox) return client.Inbox;
+        if (kind == FolderKind.Custom)
+        {
+            if (_customFolders.TryGetValue(path, out var known)) return known;
+            try
+            {
+                var f = await client.GetFolderAsync(path, ct);
+                _customFolders[path] = f;
+                return f;
+            }
+            catch (FolderNotFoundException)
+            {
+                return null;
+            }
+        }
         if (_folders.TryGetValue(kind, out var cached)) return cached;
 
         IMailFolder? found = null;
@@ -142,8 +173,7 @@ public sealed class AccountSession : IDisposable
         using (var smtp = new SmtpClient { Timeout = 60_000 })
         {
             await smtp.ConnectAsync(Account.SmtpHost, Account.SmtpPort, (SecureSocketOptions)Account.SmtpSecurity, ct);
-            smtp.AuthenticationMechanisms.Remove("XOAUTH2");
-            await smtp.AuthenticateAsync(Account.Username, Secrets.Unprotect(Account.ProtectedPassword), ct);
+            await AuthenticateAsync(smtp, Account, null, ct);
             await smtp.SendAsync(message, ct);
             await smtp.DisconnectAsync(true, ct);
         }
@@ -153,14 +183,17 @@ public sealed class AccountSession : IDisposable
         {
             await RunAsync(async c =>
             {
-                var sent = await GetFolderAsync(c, FolderKind.Sent, ct);
+                var sent = await GetFolderAsync(c, FolderKind.Sent, "", ct);
                 if (sent != null) await sent.AppendAsync(message, MessageFlags.Seen, ct);
             }, ct);
         }
         catch { /* the message was sent; failing to file a copy is not fatal */ }
     }
 
-    /// <summary>Verifies IMAP and SMTP credentials without touching the saved session.</summary>
+    /// <summary>
+    /// Verifies IMAP and SMTP sign-in without touching the saved session.
+    /// <paramref name="password"/> is the password, or an access token for OAuth accounts.
+    /// </summary>
     public static async Task TestAsync(MailAccount account, string password, CancellationToken ct = default)
     {
         using (var imap = new ImapClient { Timeout = 20_000 })
@@ -168,8 +201,7 @@ public sealed class AccountSession : IDisposable
             try
             {
                 await imap.ConnectAsync(account.ImapHost, account.ImapPort, (SecureSocketOptions)account.ImapSecurity, ct);
-                imap.AuthenticationMechanisms.Remove("XOAUTH2");
-                await imap.AuthenticateAsync(account.Username, password, ct);
+                await AuthenticateAsync(imap, account, password, ct);
                 await imap.DisconnectAsync(true, ct);
             }
             catch (Exception ex) { throw new InvalidOperationException($"Incoming mail (IMAP): {Friendly(ex)}", ex); }
@@ -179,8 +211,7 @@ public sealed class AccountSession : IDisposable
         try
         {
             await smtp.ConnectAsync(account.SmtpHost, account.SmtpPort, (SecureSocketOptions)account.SmtpSecurity, ct);
-            smtp.AuthenticationMechanisms.Remove("XOAUTH2");
-            await smtp.AuthenticateAsync(account.Username, password, ct);
+            await AuthenticateAsync(smtp, account, password, ct);
             await smtp.DisconnectAsync(true, ct);
         }
         catch (Exception ex) { throw new InvalidOperationException($"Outgoing mail (SMTP): {Friendly(ex)}", ex); }
