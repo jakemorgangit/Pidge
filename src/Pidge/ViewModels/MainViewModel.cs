@@ -97,7 +97,7 @@ public partial class MainViewModel : ObservableObject
         _searchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
         _searchTimer.Tick += (_, _) => { _searchTimer.Stop(); ReloadList(); };
 
-        foreach (var a in MailStore.GetAccounts()) Accounts.Add(new AccountCardViewModel(a));
+        foreach (var a in MailStore.GetAccounts()) Accounts.Add(new AccountCardViewModel(a) { IsMuted = Notifier.IsAccountMuted(a) });
 
         _engine.FolderChanged += (id, kind, path) => OnUi(() =>
         {
@@ -119,14 +119,17 @@ public partial class MainViewModel : ObservableObject
             SyncingCount = Accounts.Count(c => c.IsSyncing);
             Status = error != null ? $"{card.Name}: {error}" : IsSyncing ? "Syncing…" : $"Updated {DateTime.Now:HH:mm}";
         });
-        _engine.NewMail += (id, count, newest) => OnUi(() => NewMailArrived?.Invoke(id, count, newest));
+        _engine.NewMail += (id, fresh) => OnUi(() => NewMailArrived?.Invoke(id, fresh));
+        Notifier.Activated += (action, id) => OnUi(() => _ = HandleNotificationAsync(action, id));
 
         ReloadList();
         RefreshCounts();
         if (!HasAccounts) IsDashboard = false;
     }
 
-    public event Action<long, int, MessageRecord?>? NewMailArrived;
+    public event Action<long, IReadOnlyList<MessageRecord>>? NewMailArrived;
+    /// <summary>Ask the view to bring the window to the front.</summary>
+    public event Action? ActivateRequested;
 
     private static void OnUi(Action a) => Application.Current?.Dispatcher.BeginInvoke(a);
 
@@ -235,6 +238,82 @@ public partial class MainViewModel : ObservableObject
         RemoveAndAdvance(items);
         await _engine.MoveAsync(items.Select(i => i.Record).ToList(), choice.Value.kind, choice.Value.path);
         Status = $"Moved {items.Count} message{(items.Count == 1 ? "" : "s")}";
+    }
+
+    // ---------------- Notifications ----------------
+    public string NotificationStatus => Notifier.PauseDescription;
+    public bool NotificationsQuiet => !AppSettings.Current.NotificationsEnabled || Notifier.IsPaused;
+
+    private void NotifyNotificationState()
+    {
+        OnPropertyChanged(nameof(NotificationStatus));
+        OnPropertyChanged(nameof(NotificationsQuiet));
+        foreach (var c in Accounts) c.IsMuted = Notifier.IsAccountMuted(c.Account);
+    }
+
+    /// <summary>"1h", "tomorrow", "off" (until turned back on) or "resume".</summary>
+    [RelayCommand]
+    private void PauseNotifications(string option)
+    {
+        if (!AppSettings.Current.NotificationsEnabled && option == "resume")
+        {
+            AppSettings.Current.NotificationsEnabled = true;
+            AppSettings.Save();
+        }
+        Notifier.PauseUntil(option switch
+        {
+            "1h" => DateTime.UtcNow.AddHours(1),
+            "tomorrow" => DateTime.Today.AddDays(1).AddHours(8).ToUniversalTime(),
+            "off" => DateTime.MaxValue,
+            _ => null
+        });
+        NotifyNotificationState();
+        Status = Notifier.PauseDescription;
+    }
+
+    [RelayCommand]
+    private void ToggleAccountMute(AccountCardViewModel card)
+    {
+        Notifier.SetAccountMuted(card.Account, !card.IsMuted);
+        NotifyNotificationState();
+        Status = card.IsMuted ? $"{card.Name}: notifications muted" : $"{card.Name}: notifications on";
+    }
+
+    [RelayCommand]
+    private void NotificationSettings()
+    {
+        Ui.ShowSettings(this, "Notifications");
+        NotifyNotificationState();
+    }
+
+    private async Task HandleNotificationAsync(NotificationAction action, long id)
+    {
+        var record = MailStore.GetMessage(id);
+        if (action == NotificationAction.Open || record == null)
+        {
+            ActivateRequested?.Invoke();
+            if (record == null) return;
+            IsDashboard = false;
+            SelectedAccount = null;
+            SelectedTag = null;
+            if (Folder != record.Folder || IsCustomFolder) Folder = record.Folder == FolderKind.Custom ? FolderKind.Inbox : record.Folder;
+            Filter = MessageFilter.All;
+            SearchText = "";
+            ReloadList();
+            var target = Messages.FirstOrDefault(m => m.Id == id);
+            if (target != null)
+            {
+                SelectedMessage = target;
+                FocusMessage?.Invoke(target);
+            }
+            return;
+        }
+
+        if (action == NotificationAction.MarkRead) await _engine.SetReadAsync([record], true);
+        else await _engine.MoveAsync([record], FolderKind.Archive);
+        Notifier.Dismiss(record);
+        ReloadList();
+        RefreshCounts();
     }
 
     // ---------------- Tags ----------------
@@ -530,6 +609,7 @@ public partial class MainViewModel : ObservableObject
 
         Reader.Begin(item);
         Reader.RefreshTags(Tags);
+        Notifier.Dismiss(item.Record);
         RenderHtml?.Invoke("");
         try
         {
@@ -869,6 +949,7 @@ public partial class MainViewModel : ObservableObject
     private void OpenSettings()
     {
         Ui.ShowSettings(this);
+        NotifyNotificationState();
         _trusted = MailStore.GetTrusted();
         ReloadList();
         RefreshCounts();

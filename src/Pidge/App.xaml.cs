@@ -44,6 +44,7 @@ public partial class App : Application
         SpamEngine.Load();
         foreach (var account in MailStore.GetAccounts()) MailEngine.Instance.Register(account);
 
+        Notifier.Initialize();
         var main = new MainWindow();
         MainWindow = main;
         main.Show();

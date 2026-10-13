@@ -116,6 +116,34 @@
                 </StackPanel>
             </TabItem>
 
+            <!-- ================= Notifications ================= -->
+            <TabItem Header="Notifications">
+                <StackPanel>
+                    <TextBlock Text="Notifications" Style="{StaticResource SectionTitle}"/>
+                    <TextBlock Style="{StaticResource SectionIntro}"
+                               Text="Pidge shows a Windows notification when new mail lands, with Mark as read and Archive buttons. You won't get them while Pidge is in front of you, for suspected spam, or when Windows Do not disturb is on. The bell next to Settings pauses them for a while."/>
+                    <CheckBox x:Name="NotifyEnabledBox" Content="Show a notification when new mail arrives"/>
+                    <CheckBox x:Name="NotifySoundBox" Margin="0,12,0,0" Content="Play a sound"/>
+                    <CheckBox x:Name="NotifyPeopleBox" Margin="0,12,0,0" Content="Only for mail from people (skip newsletters, promotions and automated mail)"/>
+
+                    <TextBlock Text="Notify me for" Style="{StaticResource FieldLabel}" Margin="0,22,0,8"/>
+                    <ItemsControl x:Name="NotifyAccountsList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding Enabled}" Margin="0,0,0,10">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse Width="9" Height="9" Fill="{Binding Brush}" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Name}" Margin="8,0,0,0"/>
+                                        <TextBlock Text="{Binding Email}" Margin="8,0,0,0" Foreground="{StaticResource MutedBrush}"/>
+                                    </StackPanel>
+                                </CheckBox>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Content="Send a test notification" Style="{StaticResource OutlineButton}" HorizontalAlignment="Left" Margin="0,10,0,0" Click="TestNotification_Click"/>
+                </StackPanel>
+            </TabItem>
+
             <!-- ================= Accounts ================= -->
             <TabItem Header="Accounts &amp; servers">
                 <StackPanel>

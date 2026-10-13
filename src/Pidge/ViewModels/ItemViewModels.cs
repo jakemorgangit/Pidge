@@ -13,8 +13,12 @@ public partial class AccountCardViewModel : ObservableObject
     [ObservableProperty] private bool _isSyncing;
     [ObservableProperty] private string? _error;
     [ObservableProperty] private bool _isSelected;
+    [ObservableProperty] private bool _isMuted;
 
     public AccountCardViewModel(MailAccount account) => _account = account;
+
+    public string MuteMenuText => IsMuted ? "Unmute notifications" : "Mute notifications";
+    partial void OnIsMutedChanged(bool value) => OnPropertyChanged(nameof(MuteMenuText));
 
     public string Name => string.IsNullOrWhiteSpace(Account.DisplayName) ? Account.Email : Account.DisplayName;
     public string Email => Account.Email;

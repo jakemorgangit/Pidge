@@ -31,6 +31,7 @@
                 <Button.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="Sync now" Icon="&#xE895;" Command="{Binding PlacementTarget.Tag.SyncAccountCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                        <MenuItem Header="{Binding MuteMenuText}" Icon="&#xE7ED;" Command="{Binding PlacementTarget.Tag.ToggleAccountMuteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                         <MenuItem Header="Edit account…" Icon="&#xE70F;" Command="{Binding PlacementTarget.Tag.EditAccountCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                         <Separator/>
                         <MenuItem Header="Move up" Icon="&#xE70E;" Command="{Binding PlacementTarget.Tag.MoveAccountUpCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
@@ -59,6 +60,8 @@
                                     <TextBlock Text="{Binding Email}" FontSize="11" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" Margin="0,1,0,0"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="&#xE7ED;" Style="{StaticResource Icon}" FontSize="12" Foreground="{StaticResource MutedBrush}" Margin="0,0,6,0"
+                                               Visibility="{Binding IsMuted, Converter={StaticResource BoolToVis}}" ToolTip="Notifications muted for this account"/>
                                     <TextBlock Text="&#xE7BA;" Style="{StaticResource Icon}" Foreground="{StaticResource WarnBrush}" Margin="0,0,6,0"
                                                Visibility="{Binding Error, Converter={StaticResource StringToVis}}" ToolTip="{Binding Error}"/>
                                     <TextBlock x:Name="Spin" Text="&#xE895;" Style="{StaticResource Icon}" FontSize="11" Foreground="{StaticResource MutedBrush}" Margin="0,0,6,0"
@@ -270,12 +273,39 @@
                 <StackPanel DockPanel.Dock="Bottom">
                     <TextBlock Text="{Binding Status}" Foreground="{StaticResource MutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="4,6,0,6"
                                ToolTip="{Binding Status}"/>
-                    <Button Style="{StaticResource NavButton}" Command="{Binding OpenSettingsCommand}" ToolTip="Settings (Ctrl+,)">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE713;" Style="{StaticResource Icon}" Width="20"/>
-                            <TextBlock Text="Settings" Margin="10,0,0,0"/>
-                        </StackPanel>
-                    </Button>
+                    <Grid>
+                        <Button Style="{StaticResource NavButton}" Command="{Binding OpenSettingsCommand}" ToolTip="Settings (Ctrl+,)" Margin="0,0,42,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE713;" Style="{StaticResource Icon}" Width="20"/>
+                                <TextBlock Text="Settings" Margin="10,0,0,0"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="BellButton" HorizontalAlignment="Right" Width="38" Height="36" Click="BellButton_Click" ToolTip="{Binding NotificationStatus}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="Content" Value="&#xEA8F;"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding NotificationsQuiet}" Value="True">
+                                            <Setter Property="Content" Value="&#xE7ED;"/>
+                                            <Setter Property="Foreground" Value="{StaticResource WarnBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <Button.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="{Binding NotificationStatus}" IsEnabled="False"/>
+                                    <Separator/>
+                                    <MenuItem Header="Pause for 1 hour" Icon="&#xE823;" Command="{Binding PauseNotificationsCommand}" CommandParameter="1h"/>
+                                    <MenuItem Header="Pause until tomorrow morning" Icon="&#xE708;" Command="{Binding PauseNotificationsCommand}" CommandParameter="tomorrow"/>
+                                    <MenuItem Header="Pause until I turn them back on" Icon="&#xE7ED;" Command="{Binding PauseNotificationsCommand}" CommandParameter="off"/>
+                                    <MenuItem Header="Resume notifications" Icon="&#xEA8F;" Command="{Binding PauseNotificationsCommand}" CommandParameter="resume"/>
+                                    <Separator/>
+                                    <MenuItem Header="Notification settings…" Icon="&#xE713;" Command="{Binding NotificationSettingsCommand}"/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
+                    </Grid>
                 </StackPanel>
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto">

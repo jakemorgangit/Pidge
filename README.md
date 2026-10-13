@@ -91,6 +91,15 @@ From then on, adding, editing or removing an account, blocking a sender, tags an
 
 Formatting (bold, italic, lists, quotes, colours, links), a signature per account, attachments (drag and drop), contact autocomplete, Cc/Bcc and drafts. **Ctrl+Enter** sends.
 
+## Notifications
+
+New mail pops up as a Windows notification with the sender, subject and a preview, plus **Mark as read** and **Archive** buttons. Click it to jump straight to the email.
+
+- They stay quiet while Pidge is in front of you, for suspected spam, and when Windows *Do not disturb* is on.
+- The **bell** next to Settings pauses them for an hour, until tomorrow morning, or until you turn them back on.
+- Right-click an account card → **Mute notifications** to silence one account. A crossed-out bell shows on its card.
+- **Settings → Notifications**: sound on/off, "only for mail from people" (skips newsletters, promotions and automated mail), and per-account choices.
+
 ## Comfortable to read
 
 - **Text size**: hold **Ctrl** and turn the mouse wheel anywhere (or **Ctrl +/−**) to zoom the whole app, emails included. There's also a slider in Settings → General.
