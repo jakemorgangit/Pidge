@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>Assets\Pidge.ico</ApplicationIcon>
+    <Version Condition="'$(Version)' == ''">1.0.0</Version>
+    <Product>Pidge</Product>
+    <Company>Blackcat Data Solutions Limited</Company>
+    <Authors>Jake Morgan</Authors>
+    <Copyright>© Blackcat Data Solutions Limited</Copyright>
+    <Description>A fast, dark-mode email client for people with lots of accounts.</Description>
+    <RuntimeIdentifier Condition="'$(Configuration)' == 'Release'">win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\Pidge.ico" />
+    <Resource Include="Assets\Pidge.png" />
+    <InternalsVisibleTo Include="Pidge.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Dapper" Version="2.1.89" />
+    <PackageReference Include="MailKit" Version="4.18.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+  </ItemGroup>
+
+</Project>

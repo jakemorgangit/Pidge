@@ -1,8 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/QuickMail/QuickMail.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/QuickMail.Tests/QuickMail.Tests.csproj" />
-  </Folder>
-</Solution>
