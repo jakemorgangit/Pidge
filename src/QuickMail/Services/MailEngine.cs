@@ -233,7 +233,9 @@ public sealed class MailEngine
     {
         long minUid = MailStore.GetMinUid(accountId, kind);
         if (minUid == 0) return;
-        var local = MailStore.GetLocalFlags(accountId, kind, minUid);
+        // Only compare the range we ask the server about; messages inserted moments ago have higher UIDs
+        // and must not be mistaken for messages deleted on the server.
+        var local = MailStore.GetLocalFlags(accountId, kind, minUid, maxUid);
         var range = new UniqueIdRange(new UniqueId((uint)minUid), new UniqueId((uint)maxUid));
         var remote = await folder.FetchAsync(range, MessageSummaryItems.UniqueId | MessageSummaryItems.Flags, ct);
 

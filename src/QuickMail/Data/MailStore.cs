@@ -138,12 +138,12 @@ public static class MailStore
         tx.Commit();
     }
 
-    public static Dictionary<long, (bool read, bool flagged, bool answered)> GetLocalFlags(long accountId, FolderKind folder, long fromUid)
+    public static Dictionary<long, (bool read, bool flagged, bool answered)> GetLocalFlags(long accountId, FolderKind folder, long fromUid, long toUid)
     {
         using var c = Db.Open();
         return c.Query<(long Uid, bool IsRead, bool IsFlagged, bool IsAnswered)>(
-                "SELECT Uid, IsRead, IsFlagged, IsAnswered FROM Messages WHERE AccountId=@accountId AND Folder=@folder AND Uid>=@fromUid",
-                new { accountId, folder, fromUid })
+                "SELECT Uid, IsRead, IsFlagged, IsAnswered FROM Messages WHERE AccountId=@accountId AND Folder=@folder AND Uid>=@fromUid AND Uid<=@toUid",
+                new { accountId, folder, fromUid, toUid })
             .ToDictionary(r => r.Uid, r => (r.IsRead, r.IsFlagged, r.IsAnswered));
     }
 
