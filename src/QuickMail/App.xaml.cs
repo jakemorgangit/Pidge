@@ -49,6 +49,16 @@ public partial class App : Application
         main.Show();
 
         MailEngine.Instance.StartBackgroundSync();
+        ConfigSync.Start();
+        _ = ConfigSync.PullAsync();
+
+        // Daily tidy-up: compress older cache files and apply the retention setting.
+        if (DateTime.UtcNow - AppSettings.Current.LastCompactUtc > TimeSpan.FromDays(1))
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMinutes(2));
+                try { await MessageCache.CompactAsync(AppSettings.Current.CacheRetentionDays); } catch { /* try again tomorrow */ }
+            });
         if (AppSettings.Current.CheckForUpdates && !MailEngine.Offline) _ = UpdateService.CheckOnStartupAsync(main);
     }
 

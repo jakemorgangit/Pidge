@@ -48,6 +48,11 @@ public partial class ComposeWindow : Window
             box.LostKeyboardFocus += (_, _) => Dispatcher.BeginInvoke(() => { if (!_suggestList.IsKeyboardFocusWithin) _suggestPopup.IsOpen = false; });
         }
 
+        // Respect the app-wide text size.
+        var scale = Math.Clamp(QuickMail.Services.AppSettings.Current.UiScale, MainViewModel.MinScale, MainViewModel.MaxScale);
+        if (Content is FrameworkElement root && Math.Abs(scale - 1) > 0.01)
+            root.LayoutTransform = new System.Windows.Media.ScaleTransform(scale, scale);
+
         Loaded += async (_, _) => await InitEditorAsync();
         Closing += OnClosing;
     }
@@ -55,6 +60,7 @@ public partial class ComposeWindow : Window
     private async Task InitEditorAsync()
     {
         await Editor.EnsureCoreWebView2Async(await WebViewEnv.GetAsync());
+        Editor.ZoomFactor = Math.Clamp(QuickMail.Services.AppSettings.Current.UiScale, MainViewModel.MinScale, MainViewModel.MaxScale);
         var core = Editor.CoreWebView2;
         core.Settings.AreDevToolsEnabled = false;
         core.Settings.IsStatusBarEnabled = false;

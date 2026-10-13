@@ -49,8 +49,21 @@ public partial class MainWindow : Window
             if (!IsActive) FlashTaskbar();
         };
 
+        _vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.UiScale) && _webReady && Math.Abs(ReaderView.ZoomFactor - _vm.UiScale) > 0.01)
+                ReaderView.ZoomFactor = _vm.UiScale;
+            if (e.PropertyName == nameof(MainViewModel.IsCustomFolder)) FoldersTab.IsChecked = _vm.IsCustomFolder;
+        };
+
         Loaded += async (_, _) => await InitWebViewAsync();
         PreviewKeyDown += OnPreviewKeyDown;
+        PreviewMouseWheel += (_, e) =>
+        {
+            if (Keyboard.Modifiers != ModifierKeys.Control) return;
+            if (e.Delta > 0) _vm.ZoomInCommand.Execute(null); else _vm.ZoomOutCommand.Execute(null);
+            e.Handled = true;
+        };
         Closing += OnClosing;
     }
 
@@ -69,6 +82,13 @@ public partial class MainWindow : Window
             core.Settings.IsWebMessageEnabled = false;
             core.NavigationStarting += OnNavigationStarting;
             core.NewWindowRequested += (_, e) => { e.Handled = true; OpenExternal(e.Uri); };
+            ReaderView.ZoomFactor = _vm.UiScale;
+            // Ctrl + wheel over the email itself zooms the whole app the same way.
+            ReaderView.ZoomFactorChanged += (_, _) =>
+            {
+                var z = Math.Round(Math.Clamp(ReaderView.ZoomFactor, MainViewModel.MinScale, MainViewModel.MaxScale), 2);
+                if (Math.Abs(z - _vm.UiScale) > 0.01) _vm.UiScale = z;
+            };
             _webReady = true;
             if (_pendingHtml != null) Render(_pendingHtml);
         }
@@ -168,12 +188,80 @@ public partial class MainWindow : Window
             _vm.SelectAccountByIndex(e.Key - Key.D1);
             e.Handled = true;
         }
+        else if (e.Key == Key.T && Keyboard.Modifiers == ModifierKeys.None && MessageList.IsKeyboardFocusWithin)
+        {
+            ShowTagMenu(TagButton);
+            e.Handled = true;
+        }
         else if (e.Key == Key.Escape && SearchBox.IsKeyboardFocused)
         {
             _vm.SearchText = "";
             MessageList.Focus();
             e.Handled = true;
         }
+    }
+
+    // ---------------- Folders drop-down ----------------
+    private void FoldersTab_Click(object sender, RoutedEventArgs e)
+    {
+        FoldersTab.IsChecked = _vm.IsCustomFolder;
+        _vm.LoadFolderChoices();
+        FoldersPopup.IsOpen = true;
+        FolderList.Focus();
+    }
+
+    private void FolderList_Click(object sender, MouseButtonEventArgs e) => OpenSelectedFolder();
+
+    private void FolderList_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter) OpenSelectedFolder();
+        if (e.Key == Key.Escape) FoldersPopup.IsOpen = false;
+    }
+
+    private void OpenSelectedFolder()
+    {
+        if (FolderList.SelectedItem is not FolderChoice { Selectable: true } choice) return;
+        FoldersPopup.IsOpen = false;
+        _vm.OpenFolderCommand.Execute(choice);
+    }
+
+    // ---------------- Tag menu ----------------
+    private void TagButton_Click(object sender, RoutedEventArgs e) => ShowTagMenu(TagButton);
+    private void TagMenu_Click(object sender, RoutedEventArgs e) => Dispatcher.BeginInvoke(() => ShowTagMenu(null));
+
+    /// <summary>Checkable list of tags for the selected messages, plus "New tag…".</summary>
+    private void ShowTagMenu(UIElement? anchor)
+    {
+        var selected = _vm.SelectedMessages.Count > 0 ? _vm.SelectedMessages : _vm.SelectedMessage is { } m ? [m] : [];
+        if (selected.Count == 0) return;
+        var menu = new ContextMenu();
+        foreach (var tag in _vm.Tags)
+        {
+            var header = new StackPanel { Orientation = Orientation.Horizontal };
+            header.Children.Add(new System.Windows.Shapes.Ellipse { Width = 9, Height = 9, Fill = tag.Brush, VerticalAlignment = VerticalAlignment.Center });
+            header.Children.Add(new TextBlock { Text = tag.Name, Margin = new Thickness(9, 0, 0, 0) });
+            var item = new MenuItem
+            {
+                Header = header,
+                IsCheckable = true,
+                IsChecked = selected.All(s => s.TagIds.Contains(tag.Tag.Id)),
+                Command = _vm.ToggleTagCommand,
+                CommandParameter = tag
+            };
+            menu.Items.Add(item);
+        }
+        if (_vm.Tags.Count > 0) menu.Items.Add(new Separator());
+        menu.Items.Add(new MenuItem { Header = "New tag…", Icon = "", Command = _vm.NewTagCommand });
+        if (anchor != null && anchor.IsVisible)
+        {
+            menu.PlacementTarget = anchor;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        }
+        else
+        {
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+        }
+        menu.IsOpen = true;
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)

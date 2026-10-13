@@ -5,8 +5,10 @@ using System.Xml.Linq;
 
 namespace QuickMail.Services;
 
+public enum ProviderKind { Other, Google, Microsoft, Yahoo, ICloud }
+
 public record ServerConfig(string ImapHost, int ImapPort, int ImapSecurity, string SmtpHost, int SmtpPort, int SmtpSecurity,
-    string Provider, string? Note = null);
+    string Provider, string? Note = null, ProviderKind Kind = ProviderKind.Other);
 
 /// <summary>
 /// Works out IMAP/SMTP settings from an email address: known providers, then the domain's MX records,
@@ -20,12 +22,12 @@ public static class AutoConfig
     private const string AppPasswordNote = "This provider needs an app password rather than your normal password if two-step sign-in is on.";
 
     private static readonly ServerConfig Gmail = new("imap.gmail.com", 993, Ssl, "smtp.gmail.com", 465, Ssl, "Google",
-        "Google needs an App Password: Google Account → Security → 2-Step Verification → App passwords.");
+        "Google needs an app password. QuickMail will walk you through it.", ProviderKind.Google);
     private static readonly ServerConfig Microsoft = new("outlook.office365.com", 993, Ssl, "smtp.office365.com", 587, StartTls, "Microsoft",
-        "Microsoft 365 / Outlook.com may require an app password, and some tenants block password sign-in for IMAP.");
-    private static readonly ServerConfig Yahoo = new("imap.mail.yahoo.com", 993, Ssl, "smtp.mail.yahoo.com", 465, Ssl, "Yahoo", AppPasswordNote);
+        "Microsoft accounts sign in through Microsoft's own sign-in page.", ProviderKind.Microsoft);
+    private static readonly ServerConfig Yahoo = new("imap.mail.yahoo.com", 993, Ssl, "smtp.mail.yahoo.com", 465, Ssl, "Yahoo", AppPasswordNote, ProviderKind.Yahoo);
     private static readonly ServerConfig ICloud = new("imap.mail.me.com", 993, Ssl, "smtp.mail.me.com", 587, StartTls, "iCloud",
-        "iCloud needs an app-specific password from appleid.apple.com.");
+        "iCloud needs an app-specific password. QuickMail will walk you through it.", ProviderKind.ICloud);
 
     private static readonly Dictionary<string, ServerConfig> Known = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -45,6 +47,8 @@ public static class AutoConfig
         ["protonmail.com"] = new("127.0.0.1", 1143, StartTls, "127.0.0.1", 1025, StartTls, "Proton", "Proton Mail works through Proton Mail Bridge running on this PC."),
     };
 
+    private static readonly ServerConfig DreamHost = new("imap.dreamhost.com", 993, Ssl, "smtp.dreamhost.com", 465, Ssl, "DreamHost");
+
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
 
     public static async Task<ServerConfig?> DiscoverAsync(string email, CancellationToken ct = default)
@@ -62,6 +66,7 @@ public static class AutoConfig
         if (mx.Any(h => h.EndsWith("zoho.com") || h.EndsWith("zoho.eu"))) return Known["zoho.com"];
         if (mx.Any(h => h.EndsWith("messagingengine.com"))) return Known["fastmail.com"];
         if (mx.Any(h => h.EndsWith("icloud.com"))) return ICloud;
+        if (mx.Any(h => h.EndsWith("dreamhost.com"))) return DreamHost;
 
         var fromIspdb = await TryIspdbAsync($"https://autoconfig.{domain}/mail/config-v1.1.xml?emailaddress={Uri.EscapeDataString(email)}", ct)
                         ?? await TryIspdbAsync($"https://autoconfig.thunderbird.net/v1.1/{domain}", ct);
