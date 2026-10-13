@@ -8,7 +8,7 @@ namespace Pidge.Services;
 
 /// <summary>
 /// Keeps settings identical across several PCs through a shared folder (Google Drive, OneDrive, Dropbox, a network share...).
-/// Every change (accounts added/edited/removed, block list, tags, templates, settings) is written to one encrypted file
+/// Every change (accounts added/edited/removed, block list, tags, templates, settings, contacts and spam learning) is written to one encrypted file
 /// in that folder; the other PCs notice the file change and apply it within seconds. Last change wins.
 /// The file is encrypted with AES-256-GCM using a sync passphrase entered once on each PC.
 /// </summary>
@@ -68,6 +68,12 @@ public static class ConfigSync
         public List<SharedMessageTag> MessageTags { get; set; } = [];
         public List<ServerTemplate> Templates { get; set; } = [];
         public SharedSettings? Settings { get; set; }
+
+        // Learned data, merged rather than replaced (higher count wins), so no PC's learning is lost.
+        public List<ContactRecord> Contacts { get; set; } = [];
+        public Dictionary<string, int[]> SpamTokens { get; set; } = new();
+        public long SpamDocs { get; set; }
+        public long HamDocs { get; set; }
     }
 
     // ---------------- runtime ----------------
@@ -307,7 +313,11 @@ public static class ConfigSync
                 SyncIntervalMinutes = s.SyncIntervalMinutes, InitialSyncCount = s.InitialSyncCount, SpamThreshold = s.SpamThreshold,
                 MoveSpamToJunk = s.MoveSpamToJunk, BlockRemoteImages = s.BlockRemoteImages, DarkReading = s.DarkReading,
                 CheckForUpdates = s.CheckForUpdates, CacheRetentionDays = s.CacheRetentionDays, MicrosoftClientId = s.MicrosoftClientId
-            }
+            },
+            Contacts = MailStore.GetAllContacts(),
+            SpamTokens = MailStore.LoadTokens().ToDictionary(t => t.Key, t => new[] { t.Value.spam, t.Value.ham }),
+            SpamDocs = MailStore.GetCounter("spamDocs"),
+            HamDocs = MailStore.GetCounter("hamDocs")
         };
     }
 
@@ -418,11 +428,17 @@ public static class ConfigSync
                 s.CheckForUpdates = ss.CheckForUpdates; s.CacheRetentionDays = ss.CacheRetentionDays; s.MicrosoftClientId = ss.MicrosoftClientId;
                 AppSettings.Save();
             }
+
+            // Address book and spam learning: merge, never remove.
+            if (state.Contacts.Count > 0) MailStore.MergeContacts(state.Contacts);
+            if (state.SpamTokens.Count > 0) MailStore.MergeTokens(state.SpamTokens);
+            MailStore.RaiseCounterTo("spamDocs", state.SpamDocs);
+            MailStore.RaiseCounterTo("hamDocs", state.HamDocs);
         }
         finally
         {
             MailStore.SuppressConfigEvents = false;
         }
-        SpamEngine.RefreshLists();
+        SpamEngine.Load(); // reload learned words, block list and known contacts
     }
 }

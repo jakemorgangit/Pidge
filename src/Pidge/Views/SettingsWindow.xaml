@@ -368,7 +368,7 @@
                 <StackPanel>
                     <TextBlock Text="Sync between PCs" Style="{StaticResource SectionTitle}"/>
                     <TextBlock Style="{StaticResource SectionIntro}"
-                               Text="Use Pidge on several computers with the same accounts and settings. Point every PC at the same folder in Google Drive, OneDrive, Dropbox or a network share. Adding, editing or removing an account, blocking a sender, tags and templates all reach your other PCs within seconds."/>
+                               Text="Use Pidge on several computers with the same accounts and settings. Point every PC at the same folder in Google Drive, OneDrive, Dropbox or a network share. Accounts (adding, editing, removing), blocked senders, tags, templates, your address book and what the spam filter has learned all reach your other PCs within seconds."/>
 
                     <Border x:Name="SyncOnPanel" Style="{StaticResource Card}" Visibility="Collapsed">
                         <StackPanel>
