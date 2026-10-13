@@ -3,9 +3,8 @@
 Usage:
     1. set QUICKMAIL_DATA=C:\\temp\\qm-demo and start QuickMail once (creates the database), then close it
     2. python tools/seed_demo.py C:\\temp\\qm-demo
-    3. start QuickMail again with the same QUICKMAIL_DATA
-
-The accounts point at an unreachable server, so they show a sync warning. That is expected.
+    3. start QuickMail again with the same QUICKMAIL_DATA, plus QUICKMAIL_OFFLINE=1 so it
+       doesn't try to reach the (fake) mail servers
 """
 import os
 import random

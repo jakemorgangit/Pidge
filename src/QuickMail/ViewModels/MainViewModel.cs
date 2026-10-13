@@ -235,7 +235,7 @@ public partial class MainViewModel : ObservableObject
         var byId = Accounts.ToDictionary(a => a.Account.Id, a => a.Account);
         var records = MailStore.QueryMessages(SelectedAccount?.Account.Id, Folder, Filter, SearchText, _limit)
             .Where(r => byId.ContainsKey(r.AccountId)).ToList();
-        CanLoadMore = string.IsNullOrWhiteSpace(SearchText) && records.Count > 0;
+        CanLoadMore = string.IsNullOrWhiteSpace(SearchText) && Filter != MessageFilter.Spam && records.Count > 0;
 
         var existing = Messages.ToDictionary(m => m.Id);
         var result = new List<MessageItemViewModel>(records.Count);

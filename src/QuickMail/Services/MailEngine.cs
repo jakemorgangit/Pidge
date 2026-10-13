@@ -17,6 +17,9 @@ public sealed class MailEngine
 {
     public static MailEngine Instance { get; } = new();
 
+    /// <summary>Set QUICKMAIL_OFFLINE=1 to never contact mail servers (demos and UI testing).</summary>
+    public static bool Offline { get; } = Environment.GetEnvironmentVariable("QUICKMAIL_OFFLINE") == "1";
+
     private readonly ConcurrentDictionary<long, AccountSession> _sessions = new();
     private readonly ConcurrentDictionary<long, MailAccount> _accounts = new();
     private CancellationTokenSource? _loopCts;
@@ -81,7 +84,7 @@ public sealed class MailEngine
     // ---------------- Sync ----------------
     public async Task<int> SyncFolderAsync(long accountId, FolderKind kind, CancellationToken ct = default)
     {
-        if (!_accounts.TryGetValue(accountId, out var account)) return 0;
+        if (Offline || !_accounts.TryGetValue(accountId, out var account)) return 0;
         SyncState?.Invoke(accountId, true, null);
         try
         {
@@ -322,6 +325,7 @@ public sealed class MailEngine
 
     private async Task StoreFlagAsync(IEnumerable<MessageRecord> messages, MessageFlags flag, bool add)
     {
+        if (Offline) return;
         foreach (var group in messages.GroupBy(m => (m.AccountId, m.Folder)).ToList())
         {
             if (!_sessions.TryGetValue(group.Key.AccountId, out var session)) continue;
@@ -350,7 +354,7 @@ public sealed class MailEngine
         foreach (var group in messages.GroupBy(m => (m.AccountId, m.Folder)).ToList())
         {
             foreach (var m in group) MailStore.DeleteMessage(m.Id);
-            if (!_sessions.TryGetValue(group.Key.AccountId, out var session)) continue;
+            if (Offline || !_sessions.TryGetValue(group.Key.AccountId, out var session)) continue;
             var uids = group.Select(m => new UniqueId((uint)m.Uid)).ToList();
             try
             {
