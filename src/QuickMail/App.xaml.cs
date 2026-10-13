@@ -49,7 +49,7 @@ public partial class App : Application
         main.Show();
 
         MailEngine.Instance.StartBackgroundSync();
-        if (AppSettings.Current.CheckForUpdates) _ = UpdateService.CheckOnStartupAsync(main);
+        if (AppSettings.Current.CheckForUpdates && !MailEngine.Offline) _ = UpdateService.CheckOnStartupAsync(main);
     }
 
     protected override void OnExit(ExitEventArgs e)
