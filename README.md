@@ -19,7 +19,8 @@ If you have five, ten or twenty mailboxes, most email apps make you check them o
 - **Account cards**: each account is a small card on the left with its own colour and unread count. Click one to open its inbox.
 - **All inboxes**: work through every account as if it were one mailbox. Replies go out from whichever account received the email.
 - **Unread mail stands out**: bold, bright and dotted. Read mail steps back.
-- **Fast triage**: single-key shortcuts, multi-select, and the next message opens automatically after you archive or delete.
+- **Instant reading**: new mail is downloaded and stored (compressed) on your PC as it arrives, so opening it doesn't wait for the server.
+- **Fast, safe triage**: press Delete and the email instantly shows a red bin and spinner while the next one opens. It disappears only when the server confirms, and pressing Delete again never touches an email that's already on its way out. Background syncing uses its own connection, so your actions never queue behind it.
 - **Not overwhelming**: the extras (tags, folders, sync) stay out of the way until you use them.
 
 ## Dashboard
@@ -93,7 +94,7 @@ Formatting (bold, italic, lists, quotes, colours, links), a signature per accoun
 
 ## Notifications
 
-New mail pops up as a Windows notification with the sender, subject and a preview, plus **Mark as read** and **Archive** buttons. Click it to jump straight to the email.
+New mail pops up as a Windows notification with the sender, subject and a preview, plus **Mark as read**, **Archive** and **Delete** buttons. Click it to jump straight to the email.
 
 - They stay quiet while Pidge is in front of you, for suspected spam, and when Windows *Do not disturb* is on.
 - The **bell** next to Settings pauses them for an hour, until tomorrow morning, or until you turn them back on.

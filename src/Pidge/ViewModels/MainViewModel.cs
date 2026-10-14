@@ -222,7 +222,7 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task MoveToFolderAsync()
     {
         var items = Targets();
@@ -235,9 +235,8 @@ public partial class MainViewModel : ObservableObject
         }
         var choice = Ui.PickFolder(accountId);
         if (choice == null) return;
-        RemoveAndAdvance(items);
-        await _engine.MoveAsync(items.Select(i => i.Record).ToList(), choice.Value.kind, choice.Value.path);
-        Status = $"Moved {items.Count} message{(items.Count == 1 ? "" : "s")}";
+        if (await RunPendingAsync(items, PendingAction.Move, recs => _engine.MoveAsync(recs, choice.Value.kind, choice.Value.path)))
+            Status = $"Moved {items.Count} message{(items.Count == 1 ? "" : "s")}";
     }
 
     // ---------------- Notifications ----------------
@@ -309,9 +308,28 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        if (action == NotificationAction.MarkRead) await _engine.SetReadAsync([record], true);
-        else await _engine.MoveAsync([record], FolderKind.Archive);
         Notifier.Dismiss(record);
+        // If the message is on screen, show the same bin/spinner as deleting it in the list.
+        var row = Messages.FirstOrDefault(m => m.Id == id && !m.IsPending);
+        switch (action)
+        {
+            case NotificationAction.MarkRead:
+                if (row != null) row.IsRead = true;
+                await _engine.SetReadAsync([record], true);
+                break;
+            case NotificationAction.Archive when row != null:
+                await RunPendingAsync([row], PendingAction.Archive, recs => _engine.MoveAsync(recs, FolderKind.Archive));
+                break;
+            case NotificationAction.Delete when row != null:
+                await RunPendingAsync([row], PendingAction.Delete, recs => _engine.MoveAsync(recs, FolderKind.Trash));
+                break;
+            case NotificationAction.Archive:
+                await Task.Run(() => _engine.MoveAsync([record], FolderKind.Archive));
+                break;
+            case NotificationAction.Delete:
+                await Task.Run(() => _engine.MoveAsync([record], FolderKind.Trash));
+                break;
+        }
         ReloadList();
         RefreshCounts();
     }
@@ -583,6 +601,10 @@ public partial class MainViewModel : ObservableObject
 
         if (SelectedMessage != null && !keep.Contains(SelectedMessage.Id)) SelectedMessage = null;
         OnPropertyChanged(nameof(EmptyText));
+
+        // Quietly download the top of the list too, so older mail and other folders also open instantly.
+        var top = Messages.Take(20).Select(m => m.Record).ToList();
+        if (top.Count > 0) _ = Task.Run(() => _engine.PrefetchAsync(top));
         OnPropertyChanged(nameof(HasAccounts));
     }
 
@@ -696,52 +718,87 @@ public partial class MainViewModel : ObservableObject
     }
 
     // ---------------- Actions ----------------
+    /// <summary>The selected messages, ignoring any that are already being deleted or moved.</summary>
     private List<MessageItemViewModel> Targets()
     {
         var list = SelectedMessages.Count > 0 ? SelectedMessages.ToList() : [];
         if (list.Count == 0 && SelectedMessage != null) list.Add(SelectedMessage);
-        return list;
+        return list.Where(i => !i.IsPending).ToList();
     }
 
-    /// <summary>Removes items from the list and selects the next one, for fast triage.</summary>
-    private void RemoveAndAdvance(List<MessageItemViewModel> items)
+    /// <summary>
+    /// For delete/archive/move: marks the messages as in progress (bin/box icon and spinner on the row), moves the
+    /// selection on to the next message that isn't busy, runs the server action, and only then removes the rows.
+    /// If the server refuses, the rows go back to normal. Returns true on success.
+    /// </summary>
+    private async Task<bool> RunPendingAsync(List<MessageItemViewModel> items, PendingAction action, Func<List<MessageRecord>, Task<bool>> work)
     {
-        if (items.Count == 0) return;
-        int index = items.Select(i => Messages.IndexOf(i)).Where(i => i >= 0).DefaultIfEmpty(0).Min();
-        foreach (var i in items) Messages.Remove(i);
-        SelectedMessage = Messages.Count == 0 ? null : Messages[Math.Min(index, Messages.Count - 1)];
-        if (SelectedMessage != null) FocusMessage?.Invoke(SelectedMessage);
+        if (items.Count == 0) return false;
+        foreach (var i in items) i.Pending = action;
+        AdvancePast(items);
+
+        bool ok;
+        try
+        {
+            var records = items.Select(i => i.Record).ToList();
+            ok = await Task.Run(() => work(records));
+        }
+        catch (Exception ex)
+        {
+            ok = false;
+            Log.Error("Move/delete failed", ex);
+        }
+
+        if (ok)
+        {
+            foreach (var i in items) Messages.Remove(i);
+            if (SelectedMessage != null && items.Contains(SelectedMessage)) SelectedMessage = null;
+        }
+        else
+        {
+            foreach (var i in items) i.Pending = PendingAction.None;
+            Status = "The server didn't accept that, so the message is back where it was. Try again in a moment.";
+        }
         RefreshCounts();
         OnPropertyChanged(nameof(EmptyText));
+        return ok;
     }
 
-    [RelayCommand]
+    /// <summary>Selects the next message after these that isn't busy (or the one before, at the end of the list).</summary>
+    private void AdvancePast(List<MessageItemViewModel> items)
+    {
+        var indexes = items.Select(i => Messages.IndexOf(i)).Where(i => i >= 0).ToList();
+        if (indexes.Count == 0) return;
+        var next = Messages.Skip(indexes.Max() + 1).FirstOrDefault(m => !m.IsPending)
+                   ?? Messages.Take(indexes.Min()).LastOrDefault(m => !m.IsPending);
+        SelectedMessage = next;
+        if (next != null) FocusMessage?.Invoke(next);
+    }
+
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task DeleteAsync()
     {
         var items = Targets();
         if (items.Count == 0) return;
         if (Folder == FolderKind.Trash && !Ui.Confirm($"Permanently delete {items.Count} message{(items.Count == 1 ? "" : "s")}?", "Delete forever"))
             return;
-        RemoveAndAdvance(items);
-        await _engine.MoveAsync(items.Select(i => i.Record).ToList(), FolderKind.Trash);
+        await RunPendingAsync(items, PendingAction.Delete, recs => _engine.MoveAsync(recs, FolderKind.Trash));
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task ArchiveAsync()
     {
         var items = Targets();
         if (items.Count == 0 || Folder == FolderKind.Archive) return;
-        RemoveAndAdvance(items);
-        await _engine.MoveAsync(items.Select(i => i.Record).ToList(), FolderKind.Archive);
+        await RunPendingAsync(items, PendingAction.Archive, recs => _engine.MoveAsync(recs, FolderKind.Archive));
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task MoveToInboxAsync()
     {
         var items = Targets();
         if (items.Count == 0 || Folder == FolderKind.Inbox) return;
-        RemoveAndAdvance(items);
-        await _engine.MoveAsync(items.Select(i => i.Record).ToList(), FolderKind.Inbox);
+        await RunPendingAsync(items, PendingAction.Move, recs => _engine.MoveAsync(recs, FolderKind.Inbox));
     }
 
     [RelayCommand]
@@ -775,13 +832,12 @@ public partial class MainViewModel : ObservableObject
         RefreshCounts();
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task MarkSpamAsync()
     {
         var items = Targets();
         if (items.Count == 0) return;
-        RemoveAndAdvance(items);
-        await _engine.MarkSpamAsync(items.Select(i => i.Record).ToList());
+        if (!await RunPendingAsync(items, PendingAction.Spam, _engine.MarkSpamAsync)) return;
 
         // Pattern recognition: offer to block a sender after repeated spam.
         var sender = items.Select(i => i.Record.FromAddress).FirstOrDefault(a => a.Length > 0);
@@ -790,13 +846,12 @@ public partial class MainViewModel : ObservableObject
         Status = "Marked as spam. The filter has learned from it.";
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task NotSpamAsync()
     {
         var items = Targets();
         if (items.Count == 0) return;
-        RemoveAndAdvance(items);
-        await _engine.NotSpamAsync(items.Select(i => i.Record).ToList());
+        if (!await RunPendingAsync(items, PendingAction.Move, async recs => { await _engine.NotSpamAsync(recs); return true; })) return;
         Status = "Moved back to the inbox. The filter has learned from it.";
     }
 

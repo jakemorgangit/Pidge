@@ -33,6 +33,8 @@ public static class MessageCache
     private static string ShortHash(string s) =>
         Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(s)))[..12].ToLowerInvariant();
 
+    public static bool IsCached(MessageRecord m) => File.Exists(PathFor(m)) || File.Exists(LegacyPath(m));
+
     public static async Task<MimeMessage?> TryLoadAsync(MessageRecord m)
     {
         var path = PathFor(m);
