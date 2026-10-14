@@ -125,6 +125,16 @@
                                 <TextBlock Text="&#xE8CA;" Style="{StaticResource Icon}" FontSize="11" Foreground="{StaticResource MutedBrush}" Margin="0,0,6,0"
                                            Visibility="{Binding IsAnswered, Converter={StaticResource BoolToVis}}" ToolTip="Replied"/>
                                 <TextBlock x:Name="DateText" Text="{Binding DateText}" FontSize="11" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+                                <!-- Shown while the server is deleting/moving this message -->
+                                <StackPanel x:Name="PendingPanel" Orientation="Horizontal" Visibility="Collapsed" VerticalAlignment="Center" ToolTip="{Binding PendingText}">
+                                    <TextBlock x:Name="PendingSpin" Text="&#xE895;" Style="{StaticResource Icon}" FontSize="11" RenderTransformOrigin="0.5,0.5"
+                                               Foreground="{StaticResource SubBrush}">
+                                        <TextBlock.RenderTransform><RotateTransform/></TextBlock.RenderTransform>
+                                    </TextBlock>
+                                    <TextBlock x:Name="PendingIcon" Text="{Binding PendingGlyph}" Style="{StaticResource Icon}" FontSize="13" Margin="6,0,0,0"
+                                               Foreground="{StaticResource SubBrush}"/>
+                                    <TextBlock x:Name="PendingLabel" Text="{Binding PendingText}" FontSize="11" Margin="5,0,0,0" Foreground="{StaticResource SubBrush}"/>
+                                </StackPanel>
                                 <Ellipse x:Name="UnreadDot" Width="8" Height="8" Fill="{StaticResource AccentBrush}" Margin="7,0,0,0" VerticalAlignment="Center"
                                          Visibility="Collapsed" ToolTip="Unread"/>
                             </StackPanel>
@@ -196,6 +206,32 @@
                 <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
                     <Setter TargetName="Row" Property="Background" Value="{StaticResource Bg2}"/>
                 </Trigger>
+                <DataTrigger Binding="{Binding IsPending}" Value="True">
+                    <Setter TargetName="PendingPanel" Property="Visibility" Value="Visible"/>
+                    <Setter TargetName="DateText" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="UnreadDot" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="Avatar" Property="Opacity" Value="0.4"/>
+                    <Setter TargetName="SubjectText" Property="Opacity" Value="0.5"/>
+                    <Setter TargetName="PreviewText" Property="Opacity" Value="0.4"/>
+                    <Setter TargetName="SenderText" Property="Opacity" Value="0.6"/>
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard x:Name="PendingSpinStory">
+                            <Storyboard RepeatBehavior="Forever">
+                                <DoubleAnimation Storyboard.TargetName="PendingSpin" Storyboard.TargetProperty="RenderTransform.Angle" From="0" To="360" Duration="0:0:0.9"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="PendingSpinStory"/>
+                    </DataTrigger.ExitActions>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsDeleting}" Value="True">
+                    <Setter TargetName="PendingIcon" Property="Foreground" Value="{StaticResource DangerBrush}"/>
+                    <Setter TargetName="PendingSpin" Property="Foreground" Value="{StaticResource DangerBrush}"/>
+                    <Setter TargetName="PendingLabel" Property="Foreground" Value="{StaticResource DangerBrush}"/>
+                    <Setter TargetName="Row" Property="Background" Value="{StaticResource DangerSoftBrush}"/>
+                    <Setter TargetName="SubjectText" Property="TextDecorations" Value="Strikethrough"/>
+                </DataTrigger>
                 <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
                     <Setter TargetName="Row" Property="Background" Value="{StaticResource Bg3}"/>
                 </DataTrigger>
@@ -679,8 +715,28 @@
                     <Border CornerRadius="10" Background="White" ClipToBounds="True">
                         <wv:WebView2 x:Name="ReaderView" DefaultBackgroundColor="White"/>
                     </Border>
-                    <TextBlock Text="Loading…" Foreground="#6B7280" HorizontalAlignment="Center" VerticalAlignment="Center"
-                               Visibility="{Binding Reader.IsLoading, Converter={StaticResource BoolToVis}}"/>
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Visibility="{Binding Reader.IsLoading, Converter={StaticResource BoolToVis}}">
+                        <Grid Width="40" Height="40" HorizontalAlignment="Center">
+                            <Ellipse Stroke="#E3E5EC" StrokeThickness="4"/>
+                            <Path Stroke="{StaticResource AccentBrush}" StrokeThickness="4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Data="M 20,2 A 18,18 0 0 1 38,20" RenderTransformOrigin="0.5,0.5">
+                                <Path.RenderTransform><RotateTransform x:Name="ReaderSpin"/></Path.RenderTransform>
+                                <Path.Triggers>
+                                    <EventTrigger RoutedEvent="Loaded">
+                                        <BeginStoryboard>
+                                            <Storyboard RepeatBehavior="Forever">
+                                                <DoubleAnimation Storyboard.TargetName="ReaderSpin" Storyboard.TargetProperty="Angle" From="0" To="360" Duration="0:0:0.8"/>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </EventTrigger>
+                                </Path.Triggers>
+                            </Path>
+                        </Grid>
+                        <TextBlock Text="Downloading this email…" Foreground="#4B5263" FontSize="13" Margin="0,14,0,0" HorizontalAlignment="Center"/>
+                        <TextBlock Text="New mail is saved on your PC as it arrives, so this is usually instant." Foreground="#8A90A0" FontSize="11.5"
+                                   Margin="0,4,0,0" HorizontalAlignment="Center"/>
+                    </StackPanel>
                     <TextBlock Text="{Binding Reader.Error}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" Margin="20" VerticalAlignment="Top"
                                Visibility="{Binding Reader.Error, Converter={StaticResource StringToVis}}"/>
                 </Grid>

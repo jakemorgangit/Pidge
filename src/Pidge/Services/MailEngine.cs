@@ -19,7 +19,10 @@ public sealed class MailEngine
     /// <summary>Set PIDGE_OFFLINE=1 to never contact mail servers (demos and UI testing).</summary>
     public static bool Offline { get; } = Environment.GetEnvironmentVariable("PIDGE_OFFLINE") == "1";
 
+    // Two connections per account: one for what you do (open, delete, move, flag) and one for background work
+    // (sync, folder listing, downloading new mail), so your actions never queue behind a sync.
     private readonly ConcurrentDictionary<long, AccountSession> _sessions = new();
+    private readonly ConcurrentDictionary<long, AccountSession> _background = new();
     private readonly ConcurrentDictionary<long, MailAccount> _accounts = new();
     private readonly ConcurrentDictionary<long, DateTime> _foldersRefreshed = new();
     private CancellationTokenSource? _loopCts;
@@ -50,16 +53,20 @@ public sealed class MailEngine
         _accounts[account.Id] = account;
         if (_sessions.TryGetValue(account.Id, out var s)) s.UpdateAccount(account);
         else _sessions[account.Id] = new AccountSession(account);
+        if (_background.TryGetValue(account.Id, out var b)) b.UpdateAccount(account);
+        else _background[account.Id] = new AccountSession(account);
     }
 
     public void Unregister(long accountId)
     {
         _accounts.TryRemove(accountId, out _);
         if (_sessions.TryRemove(accountId, out var s)) s.Dispose();
+        if (_background.TryRemove(accountId, out var b)) b.Dispose();
     }
 
     public MailAccount? Account(long id) => _accounts.TryGetValue(id, out var a) ? a : null;
     private AccountSession Session(long id) => _sessions[id];
+    private AccountSession Background(long id) => _background[id];
 
     // ---------------- Background loop ----------------
     public void StartBackgroundSync()
@@ -90,11 +97,14 @@ public sealed class MailEngine
         SyncState?.Invoke(accountId, true, null);
         try
         {
-            var fresh = await Session(accountId).RunAsync(c => SyncCoreAsync(c, account, kind, path, ct), ct);
+            var (fresh, inserted) = await Background(accountId).RunAsync(c => SyncCoreAsync(c, account, kind, path, ct), ct);
             if (kind == FolderKind.Inbox) MailStore.SetLastSync(accountId);
             SyncState?.Invoke(accountId, false, null);
             FolderChanged?.Invoke(accountId, kind, path);
             if (fresh.Count > 0 && kind == FolderKind.Inbox) NewMail?.Invoke(accountId, fresh);
+
+            // Download new mail in the background so it opens instantly.
+            if (inserted.Count > 0) _ = PrefetchAsync(inserted, ct);
 
             // Keep the folder list fresh without listing on every sync.
             if (kind == FolderKind.Inbox && DateTime.UtcNow - _foldersRefreshed.GetValueOrDefault(accountId) > TimeSpan.FromMinutes(15))
@@ -113,12 +123,12 @@ public sealed class MailEngine
         }
     }
 
-    private async Task<List<MessageRecord>> SyncCoreAsync(MailKit.Net.Imap.ImapClient client, MailAccount account,
+    private async Task<(List<MessageRecord> fresh, List<MessageRecord> inserted)> SyncCoreAsync(MailKit.Net.Imap.ImapClient client, MailAccount account,
         FolderKind kind, string path, CancellationToken ct)
     {
-        var session = Session(account.Id);
+        var session = Background(account.Id);
         var folder = await session.GetFolderAsync(client, kind, path, ct);
-        if (folder == null) return [];
+        if (folder == null) return ([], []);
 
         await folder.OpenAsync(FolderAccess.ReadWrite, ct);
         long validity = folder.UidValidity;
@@ -161,12 +171,15 @@ public sealed class MailEngine
             MailStore.SetFolderUnread(account.Id, path, unread, Math.Max(total, folder.Count));
         }
 
+        // Pre-download: everything new, or the most recent messages on a folder's first sync.
+        var inserted = maxUid == 0 ? records.OrderByDescending(r => r.DateUnix).Take(PrefetchOnFirstSync).ToList() : records;
+
         // The first sync of a folder brings in history, which isn't "new mail".
-        if (maxUid == 0) return [];
+        if (maxUid == 0) return ([], inserted);
         // Re-read so records carry their database ids (needed to open them from a notification).
         var fresh = records.Where(r => !r.IsRead && !r.IsSpam).ToList();
-        return fresh.Count == 0 ? [] : MailStore.QueryMessages(account.Id, kind, Pidge.Data.MessageFilter.All, null, 50, path)
-            .Where(m => fresh.Any(f => f.Uid == m.Uid)).ToList();
+        return (fresh.Count == 0 ? [] : MailStore.QueryMessages(account.Id, kind, Pidge.Data.MessageFilter.All, null, 50, path)
+            .Where(m => fresh.Any(f => f.Uid == m.Uid)).ToList(), inserted);
     }
 
     /// <summary>Builds records and applies the block list and spam filter to newly fetched mail.</summary>
@@ -273,7 +286,7 @@ public sealed class MailEngine
     public async Task<int> LoadOlderAsync(long accountId, FolderKind kind, string path = "", int count = 200)
     {
         if (Offline || !_accounts.TryGetValue(accountId, out var account)) return 0;
-        var session = Session(accountId);
+        var session = Background(accountId);
         var added = await session.RunAsync(async c =>
         {
             var folder = await session.GetFolderAsync(c, kind, path);
@@ -301,7 +314,7 @@ public sealed class MailEngine
     {
         if (Offline || !_accounts.TryGetValue(accountId, out _)) return;
         _foldersRefreshed[accountId] = DateTime.UtcNow;
-        var session = Session(accountId);
+        var session = Background(accountId);
         try
         {
             var folders = await session.RunAsync(async c =>
@@ -417,37 +430,98 @@ public sealed class MailEngine
 
     /// <summary>
     /// Moves messages to another folder, or permanently deletes them when they are already in the bin and the target is the bin.
+    /// The local copy is only removed once the server has confirmed, so a failure never makes mail vanish from view.
+    /// Returns false if any part failed.
     /// </summary>
-    public async Task MoveAsync(IEnumerable<MessageRecord> messages, FolderKind target, string targetPath = "")
+    public async Task<bool> MoveAsync(IEnumerable<MessageRecord> messages, FolderKind target, string targetPath = "")
     {
+        bool ok = true;
         foreach (var group in messages.GroupBy(m => (m.AccountId, m.Folder, m.FolderPath)).ToList())
         {
+            if (Offline) await Task.Delay(1200); // demo mode: behave like a real server round trip
+            if (!Offline && _sessions.TryGetValue(group.Key.AccountId, out var session))
+            {
+                var uids = group.Select(m => new UniqueId((uint)m.Uid)).ToList();
+                try
+                {
+                    await session.RunAsync(async c =>
+                    {
+                        var folder = await session.GetFolderAsync(c, group.Key.Folder, group.Key.FolderPath)
+                                     ?? throw new InvalidOperationException("Folder not found on server.");
+                        await folder.OpenAsync(FolderAccess.ReadWrite);
+                        if (group.Key.Folder == target && target == FolderKind.Trash)
+                            await ExpungeAsync(folder, uids);
+                        else
+                            await MoveOnServerAsync(c, session, folder, uids, target, targetPath, CancellationToken.None);
+                        await folder.CloseAsync(false);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    ok = false;
+                    SyncState?.Invoke(group.Key.AccountId, false, AccountSession.Friendly(ex));
+                    continue; // leave the local copy: it's still on the server
+                }
+            }
             foreach (var m in group)
             {
                 MailStore.DeleteMessage(m.Id);
                 MessageCache.Delete(m);
             }
-            if (Offline || !_sessions.TryGetValue(group.Key.AccountId, out var session)) continue;
-            var uids = group.Select(m => new UniqueId((uint)m.Uid)).ToList();
-            try
-            {
-                await session.RunAsync(async c =>
-                {
-                    var folder = await session.GetFolderAsync(c, group.Key.Folder, group.Key.FolderPath);
-                    if (folder == null) return;
-                    await folder.OpenAsync(FolderAccess.ReadWrite);
-                    if (group.Key.Folder == target && target == FolderKind.Trash)
-                        await ExpungeAsync(folder, uids);
-                    else
-                        await MoveOnServerAsync(c, session, folder, uids, target, targetPath, CancellationToken.None);
-                    await folder.CloseAsync(false);
-                });
-            }
-            catch (Exception ex)
-            {
-                SyncState?.Invoke(group.Key.AccountId, false, AccountSession.Friendly(ex));
-            }
             FolderChanged?.Invoke(group.Key.AccountId, group.Key.Folder, group.Key.FolderPath);
+        }
+        return ok;
+    }
+
+    // ---------------- Pre-downloading ----------------
+    private const int PrefetchOnFirstSync = 25;
+    private const long MaxPrefetchBytes = 15 * 1024 * 1024;
+    private readonly ConcurrentDictionary<string, byte> _prefetching = new();
+
+    /// <summary>
+    /// Downloads full messages in the background (on the background connection) and stores them compressed,
+    /// so opening them later is instant. Already-downloaded and very large messages are skipped.
+    /// </summary>
+    public async Task PrefetchAsync(IEnumerable<MessageRecord> messages, CancellationToken ct = default)
+    {
+        if (Offline) return;
+        var wanted = messages.Where(m => m.Size <= MaxPrefetchBytes && !MessageCache.IsCached(m))
+            .Where(m => _prefetching.TryAdd(MessageCache.PathFor(m), 0)).ToList();
+        if (wanted.Count == 0) return;
+        try
+        {
+            foreach (var group in wanted.GroupBy(m => (m.AccountId, m.Folder, m.FolderPath)))
+            {
+                if (!_background.TryGetValue(group.Key.AccountId, out var session)) continue;
+                try
+                {
+                    await session.RunAsync(async c =>
+                    {
+                        var folder = await session.GetFolderAsync(c, group.Key.Folder, group.Key.FolderPath, ct);
+                        if (folder == null) return;
+                        await folder.OpenAsync(FolderAccess.ReadOnly, ct);
+                        foreach (var m in group.OrderByDescending(m => m.DateUnix))
+                        {
+                            if (ct.IsCancellationRequested || MessageCache.IsCached(m)) continue;
+                            try
+                            {
+                                var mime = await folder.GetMessageAsync(new UniqueId((uint)m.Uid), ct);
+                                await MessageCache.SaveAsync(m, mime);
+                            }
+                            catch (MessageNotFoundException) { /* moved or deleted meanwhile */ }
+                        }
+                        await folder.CloseAsync(false, ct);
+                    }, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Log.Error("Background download failed", ex); // the message just downloads when opened instead
+                }
+            }
+        }
+        finally
+        {
+            foreach (var m in wanted) _prefetching.TryRemove(MessageCache.PathFor(m), out _);
         }
     }
 
@@ -492,11 +566,10 @@ public sealed class MailEngine
     }
 
     // ---------------- Spam / blocking ----------------
-    public async Task MarkSpamAsync(IEnumerable<MessageRecord> messages)
+    public async Task<bool> MarkSpamAsync(List<MessageRecord> messages)
     {
-        var list = messages.ToList();
-        foreach (var m in list) SpamEngine.Train(m, true);
-        await MoveAsync(list.Where(m => m.Folder != FolderKind.Junk), FolderKind.Junk);
+        foreach (var m in messages) SpamEngine.Train(m, true);
+        return await MoveAsync(messages.Where(m => m.Folder != FolderKind.Junk), FolderKind.Junk);
     }
 
     public async Task NotSpamAsync(IEnumerable<MessageRecord> messages)

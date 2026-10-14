@@ -91,6 +91,35 @@ public partial class MessageItemViewModel : ObservableObject
         }
     }
 
+    /// <summary>What's happening to this message on the server right now (shown on the row until it finishes).</summary>
+    [ObservableProperty] private PendingAction _pending;
+
+    public bool IsPending => Pending != PendingAction.None;
+    public bool IsDeleting => Pending == PendingAction.Delete;
+    public string PendingText => Pending switch
+    {
+        PendingAction.Delete => "Deleting…",
+        PendingAction.Archive => "Archiving…",
+        PendingAction.Spam => "Moving to spam…",
+        PendingAction.Move => "Moving…",
+        _ => ""
+    };
+    public string PendingGlyph => Pending switch
+    {
+        PendingAction.Delete => "",
+        PendingAction.Archive => "",
+        PendingAction.Spam => "",
+        _ => ""
+    };
+
+    partial void OnPendingChanged(PendingAction value)
+    {
+        OnPropertyChanged(nameof(IsPending));
+        OnPropertyChanged(nameof(IsDeleting));
+        OnPropertyChanged(nameof(PendingText));
+        OnPropertyChanged(nameof(PendingGlyph));
+    }
+
     /// <summary>Ids of the tags on this message, and chips to draw for them.</summary>
     public IReadOnlyList<long> TagIds { get; private set; } = [];
     [ObservableProperty] private IReadOnlyList<TagChip> _tagChips = [];
@@ -128,6 +157,8 @@ public partial class MessageItemViewModel : ObservableObject
         return list;
     }
 }
+
+public enum PendingAction { None, Delete, Archive, Spam, Move }
 
 public record TagChip(string Name, SolidColorBrush Brush);
 

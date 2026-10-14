@@ -10,7 +10,7 @@ using Pidge.Models;
 
 namespace Pidge.Services;
 
-public enum NotificationAction { Open, MarkRead, Archive }
+public enum NotificationAction { Open, MarkRead, Archive, Delete }
 
 /// <summary>
 /// Windows notifications for new mail. Respects the app's own mute settings (everything, per account, or for a while),
@@ -36,6 +36,7 @@ public static class Notifier
             {
                 "read" => NotificationAction.MarkRead,
                 "archive" => NotificationAction.Archive,
+                "delete" => NotificationAction.Delete,
                 _ => NotificationAction.Open
             }, id);
         };
@@ -136,7 +137,8 @@ public static class Notifier
             .AddText(subject)
             .AddAttributionText(accountName)
             .AddButton(new ToastButton().SetContent("Mark as read").AddArgument("action", "read").AddArgument("id", m.Id).SetBackgroundActivation())
-            .AddButton(new ToastButton().SetContent("Archive").AddArgument("action", "archive").AddArgument("id", m.Id).SetBackgroundActivation());
+            .AddButton(new ToastButton().SetContent("Archive").AddArgument("action", "archive").AddArgument("id", m.Id).SetBackgroundActivation())
+            .AddButton(new ToastButton().SetContent("Delete").AddArgument("action", "delete").AddArgument("id", m.Id).SetBackgroundActivation());
         if (preview.Length > 0) builder.AddText(preview);
         if (AvatarFor(sender, m.FromAddress) is { } avatar) builder.AddAppLogoOverride(new Uri(avatar), ToastGenericAppLogoCrop.Circle);
         if (!AppSettings.Current.NotifySound) builder.AddAudio(new ToastAudio { Silent = true });
