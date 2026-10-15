@@ -140,7 +140,11 @@ public static class Notifier
             .AddButton(new ToastButton().SetContent("Archive").AddArgument("action", "archive").AddArgument("id", m.Id).SetBackgroundActivation())
             .AddButton(new ToastButton().SetContent("Delete").AddArgument("action", "delete").AddArgument("id", m.Id).SetBackgroundActivation());
         if (preview.Length > 0) builder.AddText(preview);
-        if (AvatarFor(sender, m.FromAddress) is { } avatar) builder.AddAppLogoOverride(new Uri(avatar), ToastGenericAppLogoCrop.Circle);
+        // Company logo for organisations (when enabled), otherwise a round initials avatar.
+        if (AppSettings.Current.ShowBrandLogos && BrandService.Lookup(m.FromAddress)?.IconPath is { } logo)
+            builder.AddAppLogoOverride(new Uri(logo), ToastGenericAppLogoCrop.Default);
+        else if (AvatarFor(sender, m.FromAddress) is { } avatar)
+            builder.AddAppLogoOverride(new Uri(avatar), ToastGenericAppLogoCrop.Circle);
         if (!AppSettings.Current.NotifySound) builder.AddAudio(new ToastAudio { Silent = true });
         builder.Show(t =>
         {

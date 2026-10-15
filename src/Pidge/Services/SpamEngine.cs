@@ -167,7 +167,7 @@ public static partial class SpamEngine
         if (!string.IsNullOrEmpty(m.ReplyTo) && m.ReplyTo.Contains('@'))
         {
             var rtDomain = m.ReplyTo[(m.ReplyTo.LastIndexOf('@') + 1)..].Trim('>', ' ').ToLowerInvariant();
-            if (domain.Length > 0 && !rtDomain.EndsWith(BaseDomain(domain)) && string.IsNullOrEmpty(m.ListUnsubscribe))
+            if (domain.Length > 0 && !rtDomain.EndsWith(Domains.BaseDomain(domain)) && string.IsNullOrEmpty(m.ListUnsubscribe))
                 Add(1.5, "Replies go to a different domain");
         }
 
@@ -203,20 +203,12 @@ public static partial class SpamEngine
             if (!shown.Success) continue;
             var shownHost = shown.Groups["host"].Value.ToLowerInvariant();
             var realHost = target.Host.ToLowerInvariant();
-            if (!realHost.EndsWith(BaseDomain(shownHost)) && !shownHost.EndsWith(BaseDomain(realHost)))
+            if (!realHost.EndsWith(Domains.BaseDomain(shownHost)) && !shownHost.EndsWith(Domains.BaseDomain(realHost)))
                 return $"A link shows \"{shownHost}\" but actually goes to \"{realHost}\".";
         }
         return null;
     }
 
-    private static string BaseDomain(string host)
-    {
-        var parts = host.Split('.');
-        if (parts.Length <= 2) return host;
-        // Treat co.uk / com.au style suffixes as part of the base domain.
-        var tail = parts[^2].Length <= 3 && parts[^1].Length == 2 ? 3 : 2;
-        return string.Join('.', parts.TakeLast(Math.Min(tail, parts.Length)));
-    }
 
     // ---------------- Naive Bayes ----------------
     public static HashSet<string> Tokenize(MessageRecord m)

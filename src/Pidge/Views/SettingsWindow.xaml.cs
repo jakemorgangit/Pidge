@@ -65,6 +65,8 @@ public partial class SettingsWindow : Window
         InitialCountBox.SelectedItem = Counts.FirstOrDefault(i => i.Value == s.InitialSyncCount) ?? Counts[1];
         BlockImagesBox.IsChecked = s.BlockRemoteImages;
         DarkReadingBox.IsChecked = s.DarkReading;
+        BrandLogosBox.IsChecked = s.ShowBrandLogos;
+        BrandTintBox.IsChecked = s.BrandTint;
         UpdatesBox.IsChecked = s.CheckForUpdates;
         ThresholdSlider.Value = s.SpamThreshold;
         MoveSpamBox.IsChecked = s.MoveSpamToJunk;
@@ -408,6 +410,8 @@ public partial class SettingsWindow : Window
         s.InitialSyncCount = ((Choice)InitialCountBox.SelectedItem).Value;
         s.BlockRemoteImages = BlockImagesBox.IsChecked == true;
         s.CheckForUpdates = UpdatesBox.IsChecked == true;
+        s.ShowBrandLogos = BrandLogosBox.IsChecked == true;
+        s.BrandTint = BrandTintBox.IsChecked == true;
         s.SpamThreshold = Math.Round(ThresholdSlider.Value, 2);
         s.MoveSpamToJunk = MoveSpamBox.IsChecked == true;
         s.MicrosoftClientId = ClientIdBox.Text.Trim();

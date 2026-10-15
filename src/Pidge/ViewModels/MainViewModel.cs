@@ -121,6 +121,7 @@ public partial class MainViewModel : ObservableObject
         });
         _engine.NewMail += (id, fresh) => OnUi(() => NewMailArrived?.Invoke(id, fresh));
         Notifier.Activated += (action, id) => OnUi(() => _ = HandleNotificationAsync(action, id));
+        BrandService.BrandReady += domain => OnUi(() => RefreshBrands(domain));
 
         ReloadList();
         RefreshCounts();
@@ -237,6 +238,20 @@ public partial class MainViewModel : ObservableObject
         if (choice == null) return;
         if (await RunPendingAsync(items, PendingAction.Move, recs => _engine.MoveAsync(recs, choice.Value.kind, choice.Value.path)))
             Status = $"Moved {items.Count} message{(items.Count == 1 ? "" : "s")}";
+    }
+
+    // ---------------- Company logos & colours ----------------
+    /// <summary>Sent mail and drafts are from you, so they never get a company brand.</summary>
+    private static BrandInfo? BrandFor(MessageRecord r) =>
+        r.Folder is FolderKind.Sent or FolderKind.Drafts ? null : BrandService.Lookup(r.FromAddress);
+
+    /// <summary>Re-applies logos/tints (after a settings change, or when a domain's brand has just been fetched).</summary>
+    public void RefreshBrands(string? domain = null)
+    {
+        foreach (var m in Messages)
+            if (domain == null || BrandService.DomainFor(m.Record.FromAddress) == domain)
+                m.ApplyBrand(BrandFor(m.Record));
+        foreach (var m in Dashboard.NeedsAttention) m.ApplyBrand(BrandFor(m.Record));
     }
 
     // ---------------- Notifications ----------------
@@ -584,6 +599,7 @@ public partial class MainViewModel : ObservableObject
             if (!existing.TryGetValue(r.Id, out var vm)) vm = new MessageItemViewModel(r, byId[r.AccountId]);
             else vm.Update(r);
             vm.SetTags(tagMap.GetValueOrDefault((r.AccountId, r.MessageKey)) ?? [], tagById);
+            vm.ApplyBrand(BrandFor(r));
             result.Add(vm);
         }
 
@@ -1004,6 +1020,7 @@ public partial class MainViewModel : ObservableObject
     private void OpenSettings()
     {
         Ui.ShowSettings(this);
+        RefreshBrands();
         NotifyNotificationState();
         _trusted = MailStore.GetTrusted();
         ReloadList();

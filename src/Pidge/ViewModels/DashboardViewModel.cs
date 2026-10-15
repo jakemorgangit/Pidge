@@ -118,6 +118,10 @@ public partial class DashboardViewModel : ObservableObject
         NeedsAttention.Clear();
         var byId = cards.ToDictionary(c => c.Account.Id, c => c.Account);
         foreach (var m in MailStore.NeedsAttention(8))
-            NeedsAttention.Add(new MessageItemViewModel(m, byId.GetValueOrDefault(m.AccountId)));
+        {
+            var item = new MessageItemViewModel(m, byId.GetValueOrDefault(m.AccountId));
+            item.ApplyBrand(Pidge.Services.BrandService.Lookup(m.FromAddress));
+            NeedsAttention.Add(item);
+        }
     }
 }

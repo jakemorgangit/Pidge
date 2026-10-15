@@ -101,6 +101,15 @@ New mail pops up as a Windows notification with the sender, subject and a previe
 - Right-click an account card → **Mute notifications** to silence one account. A crossed-out bell shows on its card.
 - **Settings → Notifications**: sound on/off, "only for mail from people" (skips newsletters, promotions and automated mail), and per-account choices.
 
+## Company logos and colours
+
+Mail from businesses and organisations shows the company's logo instead of initials, so you can spot your bank, suppliers and services at a glance. Turn on **brand colour tint** and each company's emails get a soft wash of its brand colour.
+
+- Personal addresses (Gmail, Outlook/Hotmail, Yahoo, iCloud, Proton, BT, Sky…) keep their initials.
+- Logos come from the company's own website (falling back to DuckDuckGo's icon service). The colour is the site's declared theme colour, or the main colour of its logo. Black-and-white logos get no tint.
+- Each company is looked up once and cached for a month, never when you open an email, so it can't act as a read receipt.
+- Toggle both under **Settings → General**.
+
 ## Comfortable to read
 
 - **Text size**: hold **Ctrl** and turn the mouse wheel anywhere (or **Ctrl +/−**) to zoom the whole app, emails included. There's also a slider in Settings → General.
