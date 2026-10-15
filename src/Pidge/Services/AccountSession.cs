@@ -19,6 +19,10 @@ public sealed class AccountSession : IDisposable
     private readonly Dictionary<FolderKind, IMailFolder?> _folders = new();
     private readonly Dictionary<string, IMailFolder> _customFolders = new(StringComparer.Ordinal);
     private ImapClient? _imap;
+    private readonly CommandTracker _tracker = new();
+
+    /// <summary>For diagnostics: the start and length of the last command sent to the server (sign-in is never recorded).</summary>
+    public string DescribeLastCommand() => _tracker.Describe();
 
     public MailAccount Account { get; private set; }
 
@@ -42,7 +46,7 @@ public sealed class AccountSession : IDisposable
     {
         if (_imap is { IsConnected: true, IsAuthenticated: true }) return _imap;
         Drop();
-        var client = new ImapClient { Timeout = 30_000 };
+        var client = new ImapClient(_tracker) { Timeout = 30_000 };
         await client.ConnectAsync(Account.ImapHost, Account.ImapPort, (SecureSocketOptions)Account.ImapSecurity, ct);
         await AuthenticateAsync(client, Account, null, ct);
         _imap = client;
@@ -231,4 +235,56 @@ public sealed class AccountSession : IDisposable
         Drop();
         _lock.Dispose();
     }
+}
+
+/// <summary>
+/// Remembers the beginning and total length of the last command Pidge sent, so a server error can be logged
+/// precisely. Sign-in commands are replaced with a placeholder; message contents are never sent as commands.
+/// </summary>
+internal sealed class CommandTracker : IProtocolLogger
+{
+    private readonly object _gate = new();
+    private readonly System.Text.StringBuilder _current = new();
+    private long _currentLength;
+    private string _last = "";
+    private long _lastLength;
+
+    private static readonly System.Text.RegularExpressions.Regex SafeCommand = new(
+        @"^[A-Z0-9]+ (UID )?(FETCH|STORE|MOVE|COPY|SEARCH|EXPUNGE|SELECT|EXAMINE|STATUS|LIST|LSUB|CLOSE|NOOP|IDLE|ENABLE|NAMESPACE|CAPABILITY)\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    public IAuthenticationSecretDetector AuthenticationSecretDetector { get; set; } = null!;
+
+    public void LogConnect(Uri uri) { }
+    public void LogServer(byte[] buffer, int offset, int count) { }
+
+    public void LogClient(byte[] buffer, int offset, int count)
+    {
+        lock (_gate)
+        {
+            for (int i = offset; i < offset + count; i++)
+            {
+                _currentLength++;
+                if (_current.Length < 300) _current.Append((char)buffer[i]);
+                if (buffer[i] != (byte)'\n') continue;
+                var text = _current.ToString().TrimEnd();
+                // Only ever record ordinary mailbox commands; anything else (sign-in, its continuation lines…) is not kept.
+                _last = SafeCommand.IsMatch(text) ? text : "[other command]";
+                _lastLength = _currentLength;
+                _current.Clear();
+                _currentLength = 0;
+            }
+        }
+    }
+
+    public string Describe()
+    {
+        lock (_gate)
+        {
+            var pending = _current.Length > 0 ? $" (unfinished command so far {_currentLength:N0} bytes: \"{_current}\")" : "";
+            return _last.Length == 0 && pending.Length == 0 ? "" : $"Last command {_lastLength:N0} bytes: \"{_last}\"{pending}";
+        }
+    }
+
+    public void Dispose() { }
 }
