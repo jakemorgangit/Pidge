@@ -20,6 +20,8 @@ public partial class MainViewModel : ObservableObject
     private readonly DispatcherTimer _searchTimer;
     private int _limit = 500;
     private int _readerToken;
+    // Opened while viewing Unread: kept unread (so they stay in the list) until the user leaves that view.
+    private readonly List<MessageItemViewModel> _readLater = new();
     private HashSet<string> _trusted = MailStore.GetTrusted();
 
     public ObservableCollection<AccountCardViewModel> Accounts { get; } = new();
@@ -137,6 +139,7 @@ public partial class MainViewModel : ObservableObject
     // ---------------- Navigation ----------------
     partial void OnSelectedAccountChanged(AccountCardViewModel? value)
     {
+        _ = CommitHeldReadsAsync();
         foreach (var c in Accounts) c.IsSelected = c == value;
         OnPropertyChanged(nameof(IsUnified));
         OnPropertyChanged(nameof(ScopeTitle));
@@ -144,6 +147,7 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnFolderChanged(FolderKind value)
     {
+        _ = CommitHeldReadsAsync();
         if (value != FolderKind.Custom) { FolderPath = ""; FolderAccountId = null; }
         if (SelectedTag != null) SelectedTag = null;
         if (value != FolderKind.Inbox && Filter == MessageFilter.Spam) Filter = MessageFilter.All;
@@ -155,8 +159,14 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnSelectedTagChanged(TagItemViewModel? value)
     {
+        _ = CommitHeldReadsAsync();
         foreach (var t in Tags) t.IsSelected = t == value;
         NotifyLocation();
+    }
+
+    partial void OnIsDashboardChanged(bool value)
+    {
+        if (value) _ = CommitHeldReadsAsync();
     }
 
     partial void OnSpamCountChanged(int value) => OnPropertyChanged(nameof(ShowSpamChip));
@@ -439,7 +449,11 @@ public partial class MainViewModel : ObservableObject
         ReloadList();
     }
 
-    partial void OnFilterChanged(MessageFilter value) => ReloadList();
+    partial void OnFilterChanged(MessageFilter value)
+    {
+        if (value != MessageFilter.Unread) _ = CommitHeldReadsAsync();
+        ReloadList();
+    }
     partial void OnSearchTextChanged(string value) { _searchTimer.Stop(); _searchTimer.Start(); }
     partial void OnSyncingCountChanged(int value) => OnPropertyChanged(nameof(IsSyncing));
 
@@ -658,6 +672,12 @@ public partial class MainViewModel : ObservableObject
 
             if (!item.IsRead && item.Record.Folder != FolderKind.Drafts)
             {
+                if (Filter == MessageFilter.Unread && !IsDashboard)
+                {
+                    // Marking it read now would make it vanish from the Unread list while it's being read.
+                    if (!_readLater.Contains(item)) _readLater.Add(item);
+                    return;
+                }
                 item.IsRead = true;
                 await _engine.SetReadAsync([item.Record], true);
                 RefreshCounts();
@@ -669,6 +689,30 @@ public partial class MainViewModel : ObservableObject
             Reader.IsLoading = false;
             Reader.Error = "Couldn't open this message: " + AccountSession.Friendly(ex);
         }
+    }
+
+    public bool HasHeldReads => _readLater.Count > 0;
+
+    /// <summary>
+    /// Marks everything opened in the Unread view as read. Called when the user leaves that view (or closes Pidge).
+    /// Messages that have since gone from the list (deleted, moved, or read elsewhere) are skipped.
+    /// </summary>
+    public async Task CommitHeldReadsAsync()
+    {
+        if (_readLater.Count == 0) return;
+        var items = _readLater.Where(i => !i.IsRead && Messages.Contains(i)).ToList();
+        _readLater.Clear();
+        if (items.Count == 0) return;
+        foreach (var i in items) i.IsRead = true;
+        try
+        {
+            await _engine.SetReadAsync(items.Select(i => i.Record).ToList(), true);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Couldn't mark messages read", ex);
+        }
+        RefreshCounts();
     }
 
     private void Render()
@@ -833,7 +877,7 @@ public partial class MainViewModel : ObservableObject
         var items = Targets();
         if (items.Count == 0) return;
         bool value = !items.All(i => i.IsRead);
-        foreach (var i in items) i.IsRead = value;
+        foreach (var i in items) { i.IsRead = value; _readLater.Remove(i); }
         await _engine.SetReadAsync(items.Select(i => i.Record).ToList(), value);
         RefreshCounts();
     }
@@ -843,6 +887,7 @@ public partial class MainViewModel : ObservableObject
     {
         var unread = Messages.Where(m => !m.IsRead).ToList();
         if (unread.Count == 0) return;
+        _readLater.Clear();
         foreach (var i in unread) i.IsRead = true;
         await _engine.SetReadAsync(unread.Select(i => i.Record).ToList(), true);
         RefreshCounts();
