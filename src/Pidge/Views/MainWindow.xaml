@@ -193,6 +193,13 @@
                             </Border>
                         </WrapPanel>
                     </StackPanel>
+                    <!-- Purple outline on the active message: flashes when it's selected, then stays lit -->
+                    <Border x:Name="ActiveOutline" Grid.ColumnSpan="2" Margin="-12,-10,-14,-10" CornerRadius="8" BorderThickness="1.5"
+                            BorderBrush="{StaticResource AccentBrush}" Opacity="0" IsHitTestVisible="False">
+                        <Border.Effect>
+                            <DropShadowEffect Color="{StaticResource AccentColor}" ShadowDepth="0" BlurRadius="0" Opacity="0.9"/>
+                        </Border.Effect>
+                    </Border>
                 </Grid>
             </Border>
             <DataTemplate.Triggers>
@@ -242,6 +249,32 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
                     <Setter TargetName="Row" Property="Background" Value="{StaticResource Bg3}"/>
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard x:Name="ActiveFlashStory">
+                            <Storyboard>
+                                <DoubleAnimationUsingKeyFrames Storyboard.TargetName="ActiveOutline" Storyboard.TargetProperty="Opacity">
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0"/>
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0.12" Value="1"/>
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0.30" Value="0.3"/>
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0.45" Value="1"/>
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0.63" Value="0.3"/>
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0.80" Value="1"/>
+                                </DoubleAnimationUsingKeyFrames>
+                                <DoubleAnimationUsingKeyFrames Storyboard.TargetName="ActiveOutline" Storyboard.TargetProperty="Effect.BlurRadius">
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0" Value="0"/>
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0.12" Value="16"/>
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0.30" Value="4"/>
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0.45" Value="16"/>
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0.63" Value="4"/>
+                                    <LinearDoubleKeyFrame KeyTime="0:0:0.80" Value="14"/>
+                                    <EasingDoubleKeyFrame KeyTime="0:0:1.4" Value="7"><EasingDoubleKeyFrame.EasingFunction><QuadraticEase/></EasingDoubleKeyFrame.EasingFunction></EasingDoubleKeyFrame>
+                                </DoubleAnimationUsingKeyFrames>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="ActiveFlashStory"/>
+                    </DataTrigger.ExitActions>
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
