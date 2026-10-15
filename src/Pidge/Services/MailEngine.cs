@@ -118,6 +118,7 @@ public sealed class MailEngine
         }
         catch (Exception ex)
         {
+            Log.Error($"Sync failed for {account.Email}/{kind}{(path.Length > 0 ? "/" + path : "")}. {Background(accountId).DescribeLastCommand()}", ex);
             SyncState?.Invoke(accountId, false, AccountSession.Friendly(ex));
             return 0;
         }
@@ -141,13 +142,20 @@ public sealed class MailEngine
         {
             if (maxUid == 0)
             {
+                // First sync: the most recent messages, fetched by position in small batches.
                 int start = Math.Max(0, folder.Count - AppSettings.Current.InitialSyncCount);
-                summaries = await folder.FetchAsync(start, -1, SummaryRequest, ct);
+                var list = new List<IMessageSummary>();
+                for (int from = start; from < folder.Count; from += FetchBatch)
+                    list.AddRange(await folder.FetchAsync(from, Math.Min(from + FetchBatch, folder.Count) - 1, SummaryRequest, ct));
+                summaries = list;
             }
             else
             {
-                var range = new UniqueIdRange(new UniqueId((uint)maxUid + 1), UniqueId.MaxValue);
-                summaries = (await folder.FetchAsync(range, SummaryRequest, ct)).Where(s => s.UniqueId.Id > maxUid).ToList();
+                // New mail: list the new UIDs with a compact search, then fetch them in batches. Some servers
+                // (older Dovecot, e.g. DreamHost) reject commands over 64 KB, so nothing here can grow unbounded.
+                var newUids = (await folder.SearchAsync(SearchQuery.Uids(new UniqueIdRange(new UniqueId((uint)maxUid + 1), UniqueId.MaxValue)), ct))
+                    .Where(u => u.Id > maxUid).OrderBy(u => u.Id).ToList();
+                summaries = await FetchInBatchesAsync(folder, newUids, SummaryRequest, ct);
             }
         }
 
@@ -162,7 +170,15 @@ public sealed class MailEngine
         if (toTrash.Count > 0) await MoveOnServerAsync(client, session, folder, toTrash, FolderKind.Trash, "", ct);
         if (toJunk.Count > 0) await MoveOnServerAsync(client, session, folder, toJunk, FolderKind.Junk, "", ct);
 
-        if (maxUid > 0) await SyncFlagsAsync(folder, account.Id, kind, path, maxUid, ct);
+        if (maxUid > 0)
+        {
+            // Keeping read/flag state in step is secondary: if it fails, new mail has still been saved.
+            try { await SyncFlagsAsync(folder, account.Id, kind, path, maxUid, ct); }
+            catch (MailKit.Net.Imap.ImapCommandException ex)
+            {
+                Log.Error($"Flag sync failed for {account.Email}/{kind}{(path.Length > 0 ? "/" + path : "")}. {session.DescribeLastCommand()}", ex);
+            }
+        }
         await folder.CloseAsync(false, ct);
 
         if (kind == FolderKind.Custom)
@@ -257,6 +273,51 @@ public sealed class MailEngine
         };
     }
 
+    private const int FetchBatch = 100;
+    private const int FlagBatch = 500;
+
+    private static readonly FetchRequest SummaryRequestNoPreview = new(
+        MessageSummaryItems.UniqueId | MessageSummaryItems.Envelope | MessageSummaryItems.Flags |
+        MessageSummaryItems.InternalDate | MessageSummaryItems.BodyStructure |
+        MessageSummaryItems.Size | MessageSummaryItems.References)
+    {
+        Headers = new HeaderSet(ExtraHeaders)
+    };
+
+    /// <summary>
+    /// Fetches summaries for a list of UIDs in small batches. If the server rejects a batch (e.g. a command it thinks is
+    /// too long), the batch is split; a single message that still fails is retried without a preview, then skipped.
+    /// </summary>
+    private static async Task<List<IMessageSummary>> FetchInBatchesAsync(IMailFolder folder, IList<UniqueId> uids, FetchRequest request, CancellationToken ct)
+    {
+        var result = new List<IMessageSummary>();
+        for (int i = 0; i < uids.Count; i += FetchBatch)
+            result.AddRange(await FetchBatchAsync(folder, uids.Skip(i).Take(FetchBatch).ToList(), request, ct));
+        return result;
+    }
+
+    private static async Task<IList<IMessageSummary>> FetchBatchAsync(IMailFolder folder, List<UniqueId> batch, FetchRequest request, CancellationToken ct)
+    {
+        try
+        {
+            return await folder.FetchAsync(batch, request, ct);
+        }
+        catch (MailKit.Net.Imap.ImapCommandException ex) when (ex.Response is MailKit.Net.Imap.ImapCommandResponse.Bad or MailKit.Net.Imap.ImapCommandResponse.No)
+        {
+            if (batch.Count > 1)
+            {
+                var half = batch.Count / 2;
+                var a = await FetchBatchAsync(folder, batch.Take(half).ToList(), request, ct);
+                var b = await FetchBatchAsync(folder, batch.Skip(half).ToList(), request, ct);
+                return a.Concat(b).ToList();
+            }
+            if (!ReferenceEquals(request, SummaryRequestNoPreview))
+                return await FetchBatchAsync(folder, batch, SummaryRequestNoPreview, ct);
+            Log.Error($"Skipped message UID {batch[0].Id}: the server refused to describe it", ex);
+            return [];
+        }
+    }
+
     private static async Task SyncFlagsAsync(IMailFolder folder, long accountId, FolderKind kind, string path, long maxUid, CancellationToken ct)
     {
         long minUid = MailStore.GetMinUid(accountId, kind, path);
@@ -264,21 +325,27 @@ public sealed class MailEngine
         // Only compare the range we ask the server about; messages inserted moments ago have higher UIDs
         // and must not be mistaken for messages deleted on the server.
         var local = MailStore.GetLocalFlags(accountId, kind, path, minUid, maxUid);
-        var range = new UniqueIdRange(new UniqueId((uint)minUid), new UniqueId((uint)maxUid));
-        var remote = await folder.FetchAsync(range, MessageSummaryItems.UniqueId | MessageSummaryItems.Flags, ct);
+        var localUids = local.Keys.OrderBy(u => u).ToList();
 
         var seen = new HashSet<long>();
         var changes = new List<(long, bool, bool, bool)>();
-        foreach (var r in remote)
+        // Ask in chunks of our own messages (each chunk is a short "first:last" range).
+        for (int i = 0; i < localUids.Count; i += FlagBatch)
         {
-            long uid = r.UniqueId.Id;
-            seen.Add(uid);
-            if (!local.TryGetValue(uid, out var l)) continue;
-            var f = r.Flags ?? MessageFlags.None;
-            var now = (f.HasFlag(MessageFlags.Seen), f.HasFlag(MessageFlags.Flagged), f.HasFlag(MessageFlags.Answered));
-            if (now != l) changes.Add((uid, now.Item1, now.Item2, now.Item3));
+            var chunk = localUids.Skip(i).Take(FlagBatch).ToList();
+            var range = new UniqueIdRange(new UniqueId((uint)chunk[0]), new UniqueId((uint)chunk[^1]));
+            var remote = await folder.FetchAsync(range, MessageSummaryItems.UniqueId | MessageSummaryItems.Flags, ct);
+            foreach (var r in remote)
+            {
+                long uid = r.UniqueId.Id;
+                seen.Add(uid);
+                if (!local.TryGetValue(uid, out var l)) continue;
+                var f = r.Flags ?? MessageFlags.None;
+                var now = (f.HasFlag(MessageFlags.Seen), f.HasFlag(MessageFlags.Flagged), f.HasFlag(MessageFlags.Answered));
+                if (now != l) changes.Add((uid, now.Item1, now.Item2, now.Item3));
+            }
         }
-        var vanished = local.Keys.Where(k => !seen.Contains(k)).ToList();
+        var vanished = localUids.Where(k => !seen.Contains(k)).ToList();
         if (changes.Count > 0 || vanished.Count > 0) MailStore.ApplyFlagChanges(accountId, kind, path, changes, vanished);
     }
 
@@ -297,7 +364,7 @@ public sealed class MailEngine
             var uids = await folder.SearchAsync(SearchQuery.Uids(new UniqueIdRange(UniqueId.MinValue, new UniqueId((uint)minUid - 1))));
             var page = uids.OrderByDescending(u => u.Id).Take(count).ToList();
             if (page.Count == 0) return 0;
-            var summaries = await folder.FetchAsync(page, SummaryRequest);
+            var summaries = await FetchInBatchesAsync(folder, page.OrderBy(u => u.Id).ToList(), SummaryRequest, CancellationToken.None);
             var (records, _, _) = Process(account, kind, path, folder.UidValidity, summaries);
             MailStore.InsertMessages(records);
             TagEngine.ApplyRules(records);
@@ -417,7 +484,8 @@ public sealed class MailEngine
                     var folder = await session.GetFolderAsync(c, group.Key.Folder, group.Key.FolderPath);
                     if (folder == null) return;
                     await folder.OpenAsync(FolderAccess.ReadWrite);
-                    await folder.StoreAsync(uids, new StoreFlagsRequest(add ? StoreAction.Add : StoreAction.Remove, flag) { Silent = true });
+                    foreach (var chunk in uids.Chunk(ActionBatch))
+                        await folder.StoreAsync(chunk, new StoreFlagsRequest(add ? StoreAction.Add : StoreAction.Remove, flag) { Silent = true });
                     await folder.CloseAsync(false);
                 });
             }
@@ -535,14 +603,20 @@ public sealed class MailEngine
             return;
         }
         if (!source.IsOpen || source.Access != FolderAccess.ReadWrite) await source.OpenAsync(FolderAccess.ReadWrite, ct);
-        await source.MoveToAsync(uids, dest, ct);
+        foreach (var chunk in uids.Chunk(ActionBatch)) await source.MoveToAsync(chunk, dest, ct);
     }
 
     private static async Task ExpungeAsync(IMailFolder folder, IList<UniqueId> uids)
     {
-        await folder.StoreAsync(uids, new StoreFlagsRequest(StoreAction.Add, MessageFlags.Deleted) { Silent = true });
-        await folder.ExpungeAsync(uids);
+        foreach (var chunk in uids.Chunk(ActionBatch))
+        {
+            await folder.StoreAsync(chunk, new StoreFlagsRequest(StoreAction.Add, MessageFlags.Deleted) { Silent = true });
+            await folder.ExpungeAsync(chunk);
+        }
     }
+
+    /// <summary>Server actions on many messages are split so no single command gets too long.</summary>
+    private const int ActionBatch = 200;
 
     // ---------------- Sending / drafts ----------------
     public async Task SendAsync(long accountId, MimeMessage message)
