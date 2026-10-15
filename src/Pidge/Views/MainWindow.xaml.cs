@@ -52,6 +52,7 @@ public partial class MainWindow : Window
                 return; // you're already looking at Pidge
             }
             FlashTaskbar();
+            if (fresh.Any(m => !m.IsSpam && !m.IsRead)) ShowNewMailBadge(true);
             if (_vm.Accounts.FirstOrDefault(a => a.Account.Id == accountId)?.Account is { } account)
                 Notifier.ShowNewMail(account, fresh);
         };
@@ -81,6 +82,7 @@ public partial class MainWindow : Window
             e.Handled = true;
         };
         Closing += OnClosing;
+        Activated += (_, _) => ShowNewMailBadge(false); // you've seen it
     }
 
     private async Task InitWebViewAsync()
@@ -322,6 +324,34 @@ public partial class MainWindow : Window
         public uint Flags;
         public uint Count;
         public uint Timeout;
+    }
+
+    private static System.Windows.Media.ImageSource? _newMailBadge;
+
+    /// <summary>Little envelope over the taskbar icon while there's new mail you haven't looked at yet.</summary>
+    private void ShowNewMailBadge(bool show)
+    {
+        if (!show && TaskbarItemInfo?.Overlay == null) return;
+        TaskbarItemInfo ??= new System.Windows.Shell.TaskbarItemInfo();
+        TaskbarItemInfo.Overlay = show ? _newMailBadge ??= DrawNewMailBadge() : null;
+    }
+
+    private static System.Windows.Media.ImageSource DrawNewMailBadge()
+    {
+        const int size = 32;
+        var visual = new System.Windows.Media.DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            var accent = (System.Windows.Media.Brush)Application.Current.FindResource("AccentBrush");
+            dc.DrawEllipse(accent, null, new Point(size / 2.0, size / 2.0), size / 2.0, size / 2.0);
+            var glyph = new System.Windows.Media.FormattedText("", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                new System.Windows.Media.Typeface("Segoe Fluent Icons, Segoe MDL2 Assets"), 18, System.Windows.Media.Brushes.White, 1.0);
+            dc.DrawText(glyph, new Point((size - glyph.Width) / 2, (size - glyph.Height) / 2));
+        }
+        var bmp = new System.Windows.Media.Imaging.RenderTargetBitmap(size, size, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+        bmp.Render(visual);
+        bmp.Freeze();
+        return bmp;
     }
 
     private void FlashTaskbar()
