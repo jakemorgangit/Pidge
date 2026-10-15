@@ -96,6 +96,9 @@ public partial class MessageItemViewModel : ObservableObject
     /// <summary>Soft wash of the company's brand colour behind the row (when enabled).</summary>
     [ObservableProperty] private Brush? _brandTint;
 
+    /// <summary>Transparent, except a soft light backing for dark logos that would vanish on the dark theme.</summary>
+    [ObservableProperty] private Brush _brandLogoBacking = Brushes.Transparent;
+
     public bool HasBrandLogo => BrandLogo != null;
     partial void OnBrandLogoChanged(ImageSource? value) => OnPropertyChanged(nameof(HasBrandLogo));
 
@@ -104,6 +107,7 @@ public partial class MessageItemViewModel : ObservableObject
     {
         var s = Pidge.Services.AppSettings.Current;
         BrandLogo = s.ShowBrandLogos && brand?.IconPath != null ? BrandImages.Logo(brand.IconPath) : null;
+        BrandLogoBacking = BrandLogo != null && BrandImages.IsDark(brand!.IconPath!) ? BrandImages.LightBacking : Brushes.Transparent;
         BrandTint = s.BrandTint && brand?.Color is { } c ? BrandImages.Tint(c) : null;
     }
 
@@ -181,6 +185,44 @@ public static class BrandImages
 {
     private static readonly Dictionary<string, ImageSource> Logos = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<Color, Brush> Tints = new();
+    private static readonly Dictionary<string, bool> Dark = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Soft light tile behind dark logos so they stay visible on the dark background.</summary>
+    public static readonly Brush LightBacking = Freeze(new SolidColorBrush(Color.FromRgb(0xDC, 0xDF, 0xE8)));
+
+    private static Brush Freeze(Brush b) { b.Freeze(); return b; }
+
+    /// <summary>True when a logo is mostly dark ink on a transparent background (e.g. GitHub's black cat).</summary>
+    public static bool IsDark(string path)
+    {
+        lock (Dark)
+        {
+            if (Dark.TryGetValue(path, out var known)) return known;
+            bool dark = false;
+            try
+            {
+                if (Logo(path) is System.Windows.Media.Imaging.BitmapSource src)
+                {
+                    var bmp = new System.Windows.Media.Imaging.FormatConvertedBitmap(src, PixelFormats.Bgra32, null, 0);
+                    int w = bmp.PixelWidth, h = bmp.PixelHeight, stride = w * 4;
+                    var px = new byte[h * stride];
+                    bmp.CopyPixels(px, stride, 0);
+                    double lum = 0; int opaque = 0, clear = 0;
+                    for (int i = 0; i < px.Length; i += 4)
+                    {
+                        if (px[i + 3] < 40) { clear++; continue; }
+                        opaque++;
+                        lum += (0.2126 * px[i + 2] + 0.7152 * px[i + 1] + 0.0722 * px[i]) / 255.0;
+                    }
+                    // Only matters if the background is see-through and the ink itself is dark.
+                    dark = opaque > 0 && clear > px.Length / 4 / 10 && lum / opaque < 0.3;
+                }
+            }
+            catch { /* treat as not dark */ }
+            Dark[path] = dark;
+            return dark;
+        }
+    }
 
     public static ImageSource? Logo(string path)
     {
