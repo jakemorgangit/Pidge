@@ -290,8 +290,17 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
-    private void OnClosing(object? sender, CancelEventArgs e)
+    private async void OnClosing(object? sender, CancelEventArgs e)
     {
+        // Mail opened in the Unread view is only marked read on the way out: finish that (briefly) before closing.
+        if (_vm.HasHeldReads)
+        {
+            e.Cancel = true;
+            await Task.WhenAny(_vm.CommitHeldReadsAsync(), Task.Delay(TimeSpan.FromSeconds(5)));
+            Close();
+            return;
+        }
+
         var s = AppSettings.Current;
         s.WindowMaximized = WindowState == WindowState.Maximized;
         if (WindowState == WindowState.Normal)
