@@ -52,6 +52,8 @@ public static class ConfigSync
         public bool CheckForUpdates { get; set; }
         public int CacheRetentionDays { get; set; }
         public string MicrosoftClientId { get; set; } = "";
+        public bool ShowBrandLogos { get; set; } = true;
+        public bool BrandTint { get; set; }
     }
 
     public class SharedState
@@ -312,7 +314,8 @@ public static class ConfigSync
             {
                 SyncIntervalMinutes = s.SyncIntervalMinutes, InitialSyncCount = s.InitialSyncCount, SpamThreshold = s.SpamThreshold,
                 MoveSpamToJunk = s.MoveSpamToJunk, BlockRemoteImages = s.BlockRemoteImages, DarkReading = s.DarkReading,
-                CheckForUpdates = s.CheckForUpdates, CacheRetentionDays = s.CacheRetentionDays, MicrosoftClientId = s.MicrosoftClientId
+                CheckForUpdates = s.CheckForUpdates, CacheRetentionDays = s.CacheRetentionDays, MicrosoftClientId = s.MicrosoftClientId,
+                ShowBrandLogos = s.ShowBrandLogos, BrandTint = s.BrandTint
             },
             Contacts = MailStore.GetAllContacts(),
             SpamTokens = MailStore.LoadTokens().ToDictionary(t => t.Key, t => new[] { t.Value.spam, t.Value.ham }),
@@ -426,6 +429,7 @@ public static class ConfigSync
                 s.SyncIntervalMinutes = ss.SyncIntervalMinutes; s.InitialSyncCount = ss.InitialSyncCount; s.SpamThreshold = ss.SpamThreshold;
                 s.MoveSpamToJunk = ss.MoveSpamToJunk; s.BlockRemoteImages = ss.BlockRemoteImages; s.DarkReading = ss.DarkReading;
                 s.CheckForUpdates = ss.CheckForUpdates; s.CacheRetentionDays = ss.CacheRetentionDays; s.MicrosoftClientId = ss.MicrosoftClientId;
+                s.ShowBrandLogos = ss.ShowBrandLogos; s.BrandTint = ss.BrandTint;
                 AppSettings.Save();
             }
 

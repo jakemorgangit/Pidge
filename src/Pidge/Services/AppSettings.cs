@@ -13,6 +13,10 @@ public class AppSettings
     public bool BlockRemoteImages { get; set; } = true;
     public bool DarkReading { get; set; }
     public bool CheckForUpdates { get; set; } = true;
+    /// <summary>Show company logos instead of initials for mail from organisations.</summary>
+    public bool ShowBrandLogos { get; set; } = true;
+    /// <summary>Tint each organisation's emails with its brand colour.</summary>
+    public bool BrandTint { get; set; }
     public string? SkippedVersion { get; set; }
     public double WindowWidth { get; set; } = 1440;
     public double WindowHeight { get; set; } = 880;

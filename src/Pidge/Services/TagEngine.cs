@@ -10,12 +10,6 @@ namespace Pidge.Services;
 /// </summary>
 public static class TagEngine
 {
-    private static readonly HashSet<string> PublicProviders = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "hotmail.co.uk", "live.com", "live.co.uk", "msn.com",
-        "yahoo.com", "yahoo.co.uk", "ymail.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me", "protonmail.com",
-        "gmx.com", "gmx.co.uk", "zoho.com", "yandex.com", "mail.com", "btinternet.com", "sky.com", "virginmedia.com", "fastmail.com"
-    };
 
     public static readonly string[] Palette =
         ["#7C6CFF", "#4CC9F0", "#36D399", "#FFB648", "#FF5D73", "#F472B6", "#A3E635", "#60A5FA", "#FB923C", "#2DD4BF"];
@@ -53,7 +47,7 @@ public static class TagEngine
         foreach (var group in MailStore.TaggedSenders(tag.Id).Concat(patterns).Distinct()
                      .GroupBy(a => a[(a.IndexOf('@') + 1)..]))
         {
-            if (group.Count() >= 2 && !PublicProviders.Contains(group.Key)) patterns.Add("@" + group.Key);
+            if (group.Count() >= 2 && !Domains.IsPersonalProvider(group.Key)) patterns.Add("@" + group.Key);
         }
 
         int auto = 0;

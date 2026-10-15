@@ -105,6 +105,10 @@
 
                     <CheckBox x:Name="BlockImagesBox" Margin="0,18,0,0" Content="Block remote images (protects your privacy and stops read-tracking)"/>
                     <CheckBox x:Name="DarkReadingBox" Margin="0,12,0,0" Content="Dark reading mode for emails"/>
+                    <CheckBox x:Name="BrandLogosBox" Margin="0,12,0,0" Content="Show company logos for mail from businesses"/>
+                    <CheckBox x:Name="BrandTintBox" Margin="0,12,0,0" Content="Tint business emails with the company's brand colour"/>
+                    <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12" TextWrapping="Wrap" Margin="27,4,0,0"
+                               Text="Logos and colours come from each company's website, looked up once per company and cached (never when you open an email). Personal addresses like Gmail, Outlook and iCloud keep their initials."/>
                     <CheckBox x:Name="UpdatesBox" Margin="0,12,0,0" Content="Check for updates when Pidge starts"/>
 
                     <TextBlock Text="Keyboard shortcuts" FontWeight="SemiBold" Margin="0,22,0,6"/>

@@ -149,6 +149,16 @@ public static class Db
             c.Execute("PRAGMA user_version=2", transaction: tx);
             tx.Commit();
         }
+
+        if (version < 3)
+        {
+            // Company logos and brand colours, one row per sender domain.
+            c.Execute("""
+                CREATE TABLE IF NOT EXISTS Brands(Domain TEXT PRIMARY KEY, IconFile TEXT NOT NULL DEFAULT '',
+                    Color TEXT NOT NULL DEFAULT '', FetchedUnix INTEGER NOT NULL DEFAULT 0);
+                PRAGMA user_version=3;
+                """);
+        }
     }
 
     private static bool HasColumn(SqliteConnection c, string table, string column) =>

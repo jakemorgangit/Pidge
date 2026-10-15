@@ -109,10 +109,16 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
+                    <!-- Brand colour wash (Settings → General), drawn behind the row content -->
+                    <Border x:Name="TintLayer" Grid.ColumnSpan="2" Margin="-12,-10,-14,-10" CornerRadius="8" Background="{Binding BrandTint}" IsHitTestVisible="False"/>
                     <Border x:Name="UnreadBar" Width="3" CornerRadius="2" Background="{StaticResource AccentBrush}" Margin="-9,2,0,2" HorizontalAlignment="Left" Visibility="Collapsed"/>
                     <Grid x:Name="Avatar" Width="36" Height="36" VerticalAlignment="Top" Margin="0,1,0,0" Opacity="0.75">
                         <Ellipse Fill="{Binding AvatarBrush}"/>
                         <TextBlock Text="{Binding Initials}" Foreground="White" FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <!-- Company logo (organisations only) -->
+                        <Border CornerRadius="10" Background="White" Visibility="{Binding HasBrandLogo, Converter={StaticResource BoolToVis}}">
+                            <Image Source="{Binding BrandLogo}" Margin="5" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        </Border>
                     </Grid>
                     <StackPanel Grid.Column="1" Margin="11,0,0,0">
                         <Grid>
@@ -208,6 +214,7 @@
                 </Trigger>
                 <DataTrigger Binding="{Binding IsPending}" Value="True">
                     <Setter TargetName="PendingPanel" Property="Visibility" Value="Visible"/>
+                    <Setter TargetName="TintLayer" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="DateText" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="UnreadDot" Property="Visibility" Value="Collapsed"/>
                     <Setter TargetName="Avatar" Property="Opacity" Value="0.4"/>
@@ -581,6 +588,9 @@
                         <Grid Width="40" Height="40" VerticalAlignment="Top">
                             <Ellipse Fill="{Binding Reader.Item.AvatarBrush}"/>
                             <TextBlock Text="{Binding Reader.Item.Initials}" Foreground="White" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Border CornerRadius="11" Background="White" Visibility="{Binding Reader.Item.HasBrandLogo, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}">
+                                <Image Source="{Binding Reader.Item.BrandLogo}" Margin="6" RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </Border>
                         </Grid>
                         <StackPanel Grid.Column="1" Margin="12,0,8,0">
                             <WrapPanel>

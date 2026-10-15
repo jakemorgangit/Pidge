@@ -91,6 +91,22 @@ public partial class MessageItemViewModel : ObservableObject
         }
     }
 
+    /// <summary>Company logo shown instead of initials (organisations only, when enabled).</summary>
+    [ObservableProperty] private ImageSource? _brandLogo;
+    /// <summary>Soft wash of the company's brand colour behind the row (when enabled).</summary>
+    [ObservableProperty] private Brush? _brandTint;
+
+    public bool HasBrandLogo => BrandLogo != null;
+    partial void OnBrandLogoChanged(ImageSource? value) => OnPropertyChanged(nameof(HasBrandLogo));
+
+    /// <summary>Applies (or clears) the sender's logo and tint according to the current settings.</summary>
+    public void ApplyBrand(Pidge.Services.BrandInfo? brand)
+    {
+        var s = Pidge.Services.AppSettings.Current;
+        BrandLogo = s.ShowBrandLogos && brand?.IconPath != null ? BrandImages.Logo(brand.IconPath) : null;
+        BrandTint = s.BrandTint && brand?.Color is { } c ? BrandImages.Tint(c) : null;
+    }
+
     /// <summary>What's happening to this message on the server right now (shown on the row until it finishes).</summary>
     [ObservableProperty] private PendingAction _pending;
 
@@ -159,6 +175,50 @@ public partial class MessageItemViewModel : ObservableObject
 }
 
 public enum PendingAction { None, Delete, Archive, Spam, Move }
+
+/// <summary>Frozen, cached images and brushes for company branding.</summary>
+public static class BrandImages
+{
+    private static readonly Dictionary<string, ImageSource> Logos = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<Color, Brush> Tints = new();
+
+    public static ImageSource? Logo(string path)
+    {
+        lock (Logos)
+        {
+            if (Logos.TryGetValue(path, out var cached)) return cached;
+            try
+            {
+                var img = new System.Windows.Media.Imaging.BitmapImage();
+                img.BeginInit();
+                img.UriSource = new Uri(path);
+                img.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                img.CreateOptions = System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreImageCache;
+                img.EndInit();
+                img.Freeze();
+                Logos[path] = img;
+                return img;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    /// <summary>A gentle left-to-right wash of the brand colour, readable on the dark theme.</summary>
+    public static Brush Tint(Color c)
+    {
+        lock (Tints)
+        {
+            if (Tints.TryGetValue(c, out var b)) return b;
+            var brush = new LinearGradientBrush(Color.FromArgb(0x3A, c.R, c.G, c.B), Color.FromArgb(0x0C, c.R, c.G, c.B), 0);
+            brush.Freeze();
+            Tints[c] = brush;
+            return brush;
+        }
+    }
+}
 
 public record TagChip(string Name, SolidColorBrush Brush);
 
